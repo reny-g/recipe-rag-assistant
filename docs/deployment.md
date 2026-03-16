@@ -54,6 +54,26 @@ docker compose up -d --build
 - 挂载 `vector_index/`
 - 对 `/health` 做健康检查
 
+### 为什么第一次构建会很慢
+
+这个项目的依赖里包含 `sentence-transformers` 等较重组件，首次构建镜像时可能会触发：
+
+- 大量 Python 依赖下载
+- 较大的二进制 wheel 下载
+- Docker 镜像分层构建
+
+所以第一次服务器部署明显慢于后续部署，这属于正常现象。
+
+当前仓库已经做了两层优化：
+
+1. `Dockerfile` 先单独复制 `requirements.txt`，避免代码改动时反复失效依赖层缓存
+2. 构建时启用 BuildKit，并对 pip 下载目录做缓存挂载
+
+这意味着：
+
+- 只要 `requirements.txt` 不变，后续构建通常会快很多
+- 第二次及之后的部署，速度会明显优于首次部署
+
 ### `docker compose` 和 `docker-compose` 的区别
 
 部署时这里有一个很常见的坑：不同服务器上的 Compose 命令可能不一样。

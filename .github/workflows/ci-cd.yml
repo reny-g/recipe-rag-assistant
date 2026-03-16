@@ -87,6 +87,7 @@ jobs:
       # 构建 Docker 镜像，验证当前仓库在容器里是否能正常构建
       - name: 构建 Docker 镜像
         run: |
+          export DOCKER_BUILDKIT=1
           docker build -t recipe-rag-assistant:ci .
 
   # deploy = 持续部署任务
@@ -222,6 +223,8 @@ jobs:
 
             echo "== Deploy Debug: Docker Environment =="
             docker --version
+            export DOCKER_BUILDKIT=1
+            export COMPOSE_DOCKER_CLI_BUILD=1
 
             # 不同服务器可能安装的是 Docker Compose v2 插件或老的 docker-compose 命令
             if docker compose version >/dev/null 2>&1; then
