@@ -189,9 +189,21 @@ jobs:
             $APP_ENV_FILE
             EOF
 
-            # 启动或更新容器
+            # 输出 Docker 环境，便于排查服务器上的命令差异
             cd "$APP_DIR"
-            docker compose up -d --build
+            docker --version
+
+            # 不同服务器可能安装的是 Docker Compose v2 插件或老的 docker-compose 命令
+            if docker compose version >/dev/null 2>&1; then
+              docker compose version
+              docker compose up -d --build
+            elif command -v docker-compose >/dev/null 2>&1; then
+              docker-compose --version
+              docker-compose up -d --build
+            else
+              echo "Neither 'docker compose' nor 'docker-compose' is available on the server"
+              exit 1
+            fi
 
             # 清理无用镜像，避免服务器磁盘不断膨胀
             docker image prune -f
