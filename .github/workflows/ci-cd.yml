@@ -9,50 +9,50 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: "Deploy to the server after CI passes"
+        description: "CI 通过后是否部署到服务器"
         required: true
         default: false
         type: boolean
       ref:
-        description: "Git ref to deploy"
+        description: "要部署的 Git 引用"
         required: false
         default: "main"
         type: string
 
 jobs:
   test:
-    name: Test
+    name: 测试
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: 配置 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest
 
-      - name: Compile Python sources
+      - name: 编译 Python 源码
         run: |
           python -m compileall api.py main.py config.py rag
 
-      - name: Run unit tests
+      - name: 运行单元测试
         run: |
           pytest tests/unit -q
 
-      - name: Build Docker image
+      - name: 构建 Docker 镜像
         run: |
           docker build -t recipe-rag-assistant:ci .
 
   deploy:
-    name: Deploy
+    name: 部署
     runs-on: ubuntu-latest
     needs: test
     if: >
@@ -60,13 +60,14 @@ jobs:
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]'))
 
     steps:
-      - name: Checkout
+      - name: 检出待部署代码
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
-      - name: Create deployment archive
+      - name: 打包部署归档
         run: |
+          mkdir -p /tmp/recipe-rag-assistant-build
           tar \
             --exclude='.git' \
             --exclude='.github' \
@@ -77,20 +78,21 @@ jobs:
             --exclude='vector_index' \
             --exclude='eval/results.json' \
             --exclude='eval/report.md' \
-            -czf release.tar.gz .
+            --exclude='release.tar.gz' \
+            -czf /tmp/recipe-rag-assistant-build/release.tar.gz .
 
-      - name: Upload release bundle
+      - name: 上传归档到服务器
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
-          source: "release.tar.gz"
+          source: "/tmp/recipe-rag-assistant-build/release.tar.gz"
           target: "/tmp/recipe-rag-assistant-release"
           overwrite: true
 
-      - name: Deploy on remote server
+      - name: 在服务器上部署
         uses: appleboy/ssh-action@v1.2.0
         env:
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
