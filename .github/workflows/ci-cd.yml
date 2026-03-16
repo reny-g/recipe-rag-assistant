@@ -164,6 +164,9 @@ jobs:
           script: |
             set -e
 
+            # GitHub Secrets 偶尔会带上结尾换行，这里先做清理
+            APP_DIR="$(printf '%s' "$APP_DIR" | tr -d '\r\n')"
+
             # 检查部署目录是否已配置
             if [ -z "$APP_DIR" ]; then
               echo "SERVER_APP_DIR is not configured"
