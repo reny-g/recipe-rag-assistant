@@ -173,8 +173,16 @@ jobs:
             # 创建应用目录
             mkdir -p "$APP_DIR"
 
+            # 查找上传后的归档文件位置
+            RELEASE_FILE="$(find /tmp/recipe-rag-assistant-release -type f -name 'release.tar.gz' | head -n 1)"
+            if [ -z "$RELEASE_FILE" ]; then
+              echo "release.tar.gz was not found on the server"
+              find /tmp/recipe-rag-assistant-release -maxdepth 3 -type f || true
+              exit 1
+            fi
+
             # 解压上传的归档到部署目录
-            tar -xzf /tmp/recipe-rag-assistant-release/release.tar.gz -C "$APP_DIR"
+            tar -xzf "$RELEASE_FILE" -C "$APP_DIR"
 
             # 根据 GitHub Secret 写入 .env
             cat > "$APP_DIR/.env" <<'EOF'
