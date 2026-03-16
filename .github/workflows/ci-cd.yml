@@ -170,6 +170,11 @@ jobs:
               exit 1
             fi
 
+            echo "== Deploy Debug: APP_DIR =="
+            printf 'APP_DIR=[%s]\n' "$APP_DIR"
+            printf 'APP_DIR(quoted)='
+            printf '%q\n' "$APP_DIR"
+
             # 创建应用目录
             mkdir -p "$APP_DIR"
 
@@ -181,6 +186,12 @@ jobs:
               exit 1
             fi
 
+            echo "== Deploy Debug: Release File =="
+            printf 'RELEASE_FILE=[%s]\n' "$RELEASE_FILE"
+            printf 'RELEASE_FILE(quoted)='
+            printf '%q\n' "$RELEASE_FILE"
+            find /tmp/recipe-rag-assistant-release -maxdepth 3 -type f || true
+
             # 解压上传的归档到部署目录
             tar -xzf "$RELEASE_FILE" -C "$APP_DIR"
 
@@ -191,16 +202,33 @@ jobs:
             fi
             printf '%s\n' "$APP_ENV_FILE" > "$APP_DIR/.env"
 
-            # 输出 Docker 环境，便于排查服务器上的命令差异
+            echo "== Deploy Debug: Working Directory =="
             cd "$APP_DIR"
+            pwd
+            printf 'PWD(quoted)='
+            printf '%q\n' "$PWD"
+
+            echo "== Deploy Debug: File List =="
+            ls -la
+            echo "== Deploy Debug: Key Files =="
+            ls -la docker-compose.yml Dockerfile .env || true
+
+            echo "== Deploy Debug: .env Preview =="
+            sed -n '1,10p' .env | cat -vet || true
+
+            echo "== Deploy Debug: Docker Environment =="
             docker --version
 
             # 不同服务器可能安装的是 Docker Compose v2 插件或老的 docker-compose 命令
             if docker compose version >/dev/null 2>&1; then
               docker compose version
+              echo "== Deploy Debug: docker compose config =="
+              docker compose config
               docker compose up -d --build
             elif command -v docker-compose >/dev/null 2>&1; then
               docker-compose --version
+              echo "== Deploy Debug: docker-compose config =="
+              docker-compose config
               docker-compose up -d --build
             else
               echo "Neither 'docker compose' nor 'docker-compose' is available on the server"
