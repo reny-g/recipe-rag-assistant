@@ -1,73 +1,125 @@
+# 这是一份 GitHub Actions 工作流配置。
+# 你可以把它理解成：
+# 1. on: 什么情况下触发
+# 2. jobs: 触发后要执行哪些任务
+# 3. steps: 每个任务内部要按什么顺序做事
+# 4. uses / run: 每一步到底是调用现成动作，还是执行命令
+
 name: CI/CD
 
+# on = 工作流触发条件
 on:
+  # push = 有代码推送时触发
   push:
+    # 只有推送到 main 或 master 才触发这份工作流
     branches:
       - main
       - master
+
+  # pull_request = 提交 PR 时触发
   pull_request:
+
+  # workflow_dispatch = 手动触发
+  # 可以在 GitHub Actions 页面点按钮运行，并传入参数
   workflow_dispatch:
     inputs:
+      # deploy = 这次手动运行时是否顺便部署
       deploy:
         description: "CI 通过后是否部署到服务器"
         required: true
         default: false
         type: boolean
+
+      # ref = 这次要部署哪个 Git 引用
+      # 可以是分支名、标签，或者某个提交
       ref:
         description: "要部署的 Git 引用"
         required: false
         default: "main"
         type: string
 
+# jobs = 工作流中的任务集合
+# 这份配置里有两个任务：
+# 1. test: 测试和构建检查
+# 2. deploy: 部署到服务器
 jobs:
+  # test = 持续集成任务
   test:
     name: 测试
+
+    # runs-on = 这个任务运行在哪台机器上
+    # 这里使用 GitHub 提供的 Ubuntu runner
     runs-on: ubuntu-latest
 
+    # steps = 当前任务内部的步骤列表
+    # 会从上到下依次执行，任何一步失败都会让整个 job 失败
     steps:
+      # uses = 调用现成的 GitHub Action
+      # actions/checkout 的作用是把仓库代码检出到 runner 上
       - name: 检出代码
         uses: actions/checkout@v4
 
+      # actions/setup-python 的作用是安装指定版本的 Python
       - name: 配置 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      # run = 直接在 runner 上执行 shell 命令
+      # 这一步安装项目依赖和 pytest
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest
 
+      # compileall 的作用是先做一轮语法级检查
+      # 它不能替代测试，但可以快速发现明显的 Python 语法问题
       - name: 编译 Python 源码
         run: |
           python -m compileall api.py main.py config.py rag
 
+      # 运行单元测试，确保核心逻辑没有回归
       - name: 运行单元测试
         run: |
           pytest tests/unit -q
 
+      # 构建 Docker 镜像，验证当前仓库在容器里是否能正常构建
       - name: 构建 Docker 镜像
         run: |
           docker build -t recipe-rag-assistant:ci .
 
+  # deploy = 持续部署任务
   deploy:
     name: 部署
     runs-on: ubuntu-latest
+
+    # needs = 依赖前置任务
+    # 这里表示 deploy 必须等 test 成功后才会开始
     needs: test
+
+    # if = 额外执行条件
+    # 不是每次 test 通过都会部署，只有满足下面任一条件才部署：
+    # 1. 手动触发 workflow_dispatch，并且 deploy=true
+    # 2. push 触发时，提交信息里包含 [deploy]
     if: >
       (github.event_name == 'workflow_dispatch' && inputs.deploy) ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]'))
 
     steps:
+      # 先把要部署的代码检出到 runner
+      # 如果是手动触发，就用输入的 ref
+      # 否则就使用当前触发这次工作流的代码版本
       - name: 检出待部署代码
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
+      # 在 runner 上把当前代码打成压缩包
+      # 这样服务器就不需要自己 git clone / git pull
       - name: 打包部署归档
         run: |
-          mkdir -p /tmp/recipe-rag-assistant-build
+          mkdir -p build
           tar \
             --exclude='.git' \
             --exclude='.github' \
@@ -78,9 +130,13 @@ jobs:
             --exclude='vector_index' \
             --exclude='eval/results.json' \
             --exclude='eval/report.md' \
+            --exclude='build' \
             --exclude='release.tar.gz' \
-            -czf /tmp/recipe-rag-assistant-build/release.tar.gz .
+            -czf build/release.tar.gz .
 
+      # 用现成的 scp action 把压缩包上传到服务器
+      # with = 传给这个 action 的参数
+      # 这些参数大多来自 GitHub Secrets
       - name: 上传归档到服务器
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -88,10 +144,12 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
-          source: "/tmp/recipe-rag-assistant-build/release.tar.gz"
+          source: "build/release.tar.gz"
           target: "/tmp/recipe-rag-assistant-release"
           overwrite: true
 
+      # 用 ssh action 登录服务器并执行远程脚本
+      # env = 给远程脚本准备环境变量
       - name: 在服务器上部署
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -106,18 +164,26 @@ jobs:
           script: |
             set -e
 
+            # 检查部署目录是否已配置
             if [ -z "$APP_DIR" ]; then
               echo "SERVER_APP_DIR is not configured"
               exit 1
             fi
 
+            # 创建应用目录
             mkdir -p "$APP_DIR"
+
+            # 解压上传的归档到部署目录
             tar -xzf /tmp/recipe-rag-assistant-release/release.tar.gz -C "$APP_DIR"
 
+            # 根据 GitHub Secret 写入 .env
             cat > "$APP_DIR/.env" <<'EOF'
             $APP_ENV_FILE
             EOF
 
+            # 启动或更新容器
             cd "$APP_DIR"
             docker compose up -d --build
+
+            # 清理无用镜像，避免服务器磁盘不断膨胀
             docker image prune -f
