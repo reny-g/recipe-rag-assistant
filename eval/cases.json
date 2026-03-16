@@ -1,0 +1,118 @@
+[
+  {
+    "id": "single_001",
+    "query": "黄瓜皮蛋汤怎么做？",
+    "expected_doc": "黄瓜皮蛋汤",
+    "expected_keywords": ["黄瓜", "皮蛋"]
+  },
+  {
+    "id": "single_002",
+    "query": "茶叶蛋怎么做？",
+    "expected_doc": "茶叶蛋",
+    "expected_keywords": ["鸡蛋", "茶叶"]
+  },
+  {
+    "id": "single_003",
+    "query": "蒸水蛋需要什么材料？",
+    "expected_doc": "蒸水蛋",
+    "expected_keywords": ["鸡蛋", "温水"]
+  },
+  {
+    "id": "single_004",
+    "query": "皮蛋瘦肉粥怎么做？",
+    "expected_doc": "皮蛋瘦肉粥",
+    "expected_keywords": ["皮蛋", "瘦肉"]
+  },
+  {
+    "id": "single_005",
+    "query": "紫菜蛋花汤怎么做？",
+    "expected_doc": "紫菜蛋花汤",
+    "expected_keywords": ["紫菜", "鸡蛋"]
+  },
+  {
+    "id": "single_006",
+    "query": "陈皮排骨汤怎么做？",
+    "expected_doc": "陈皮排骨汤",
+    "expected_keywords": ["排骨", "陈皮"]
+  },
+  {
+    "id": "single_007",
+    "query": "罗宋汤怎么做？",
+    "expected_doc": "罗宋汤",
+    "expected_keywords": ["牛肉", "番茄"]
+  },
+  {
+    "id": "single_008",
+    "query": "微波炉蒸蛋怎么做？",
+    "expected_doc": "微波炉鸡蛋羹",
+    "expected_keywords": ["鸡蛋", "微波炉"]
+  },
+  {
+    "id": "recommend_001",
+    "query": "推荐一道简单的早餐",
+    "expected_docs": ["茶叶蛋", "蒸水蛋", "鸡蛋三明治"],
+    "expected_keywords": ["早餐"]
+  },
+  {
+    "id": "recommend_002",
+    "query": "来一道汤品，最好简单一点",
+    "expected_docs": ["西红柿鸡蛋汤", "黄瓜皮蛋汤", "紫菜蛋花汤"],
+    "expected_keywords": ["汤"]
+  },
+  {
+    "id": "multi_001",
+    "history": [
+      {"role": "user", "content": "陈皮排骨汤怎么做？"},
+      {"role": "assistant", "content": "可以先准备排骨、陈皮和姜片，再焯水后炖煮。"}
+    ],
+    "query": "要炖多久？",
+    "expected_doc": "陈皮排骨汤",
+    "expected_keywords": ["排骨", "陈皮"]
+  },
+  {
+    "id": "multi_002",
+    "history": [
+      {"role": "user", "content": "黄瓜皮蛋汤怎么做？"},
+      {"role": "assistant", "content": "这道汤主要用黄瓜、皮蛋和鸡蛋。"}
+    ],
+    "query": "这个汤还需要鸡蛋吗？",
+    "expected_doc": "黄瓜皮蛋汤",
+    "expected_keywords": ["黄瓜", "皮蛋"]
+  },
+  {
+    "id": "multi_003",
+    "history": [
+      {"role": "user", "content": "推荐一道早餐"},
+      {"role": "assistant", "content": "可以试试茶叶蛋，做法简单。"}
+    ],
+    "query": "那这个要煮多久？",
+    "expected_doc": "茶叶蛋",
+    "expected_keywords": ["鸡蛋", "茶叶"]
+  },
+  {
+    "id": "multi_004",
+    "history": [
+      {"role": "user", "content": "我想做微波炉鸡蛋羹"},
+      {"role": "assistant", "content": "可以，微波炉版本适合快速做。"}
+    ],
+    "query": "继续说这个菜的步骤",
+    "expected_doc": "微波炉鸡蛋羹",
+    "expected_keywords": ["鸡蛋", "微波炉"]
+  },
+  {
+    "id": "no_answer_001",
+    "query": "波士顿龙虾浓汤怎么做？",
+    "expect_no_answer": true,
+    "refusal_keywords": ["没有找到", "没有相关", "信息不足", "抱歉"]
+  },
+  {
+    "id": "no_answer_002",
+    "history": [
+      {"role": "user", "content": "推荐一道汤品"},
+      {"role": "assistant", "content": "可以试试黄瓜皮蛋汤或者紫菜蛋花汤。"}
+    ],
+    "query": "那波士顿龙虾浓汤也有吗？",
+    "expect_no_answer": true,
+    "refusal_keywords": ["没有找到", "没有相关", "信息不足", "抱歉"]
+  }
+]

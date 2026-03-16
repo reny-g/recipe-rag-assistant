@@ -1,0 +1,140 @@
+# 菜谱 RAG 助手 - CI/CD 工作流
+# 自动化测试和部署流程
+name: CI/CD
+
+# 触发条件
+# 触发条件
+on:
+  push:
+    # 主分支和 master 分支的推送自动触发 CI
+    branches:
+      - main
+      - master
+  # Pull Request 时触发
+  pull_request:
+  # 支持手动触发（通过 GitHub UI）
+  workflow_dispatch:
+    inputs:
+      deploy:
+        # 部署选项
+        description: "CI 通过后是否部署到服务器"
+        required: true
+        default: false
+        type: boolean
+      ref:
+        # 指定要部署的分支/标签
+        description: "要部署的 Git 引用（分支/标签/提交）"
+        required: false
+        default: "main"
+        type: string
+
+# 工作流任务定义
+jobs:
+  # ========== 测试 Job ==========
+  test:
+    name: 测试和构建
+    runs-on: ubuntu-latest
+
+    steps:
+      # 检出代码
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 设置 Python 环境
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 安装项目依赖
+      - name: 安装依赖包
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      # 编译 Python 源代码（检查语法错误）
+      - name: 编译 Python 源代码
+        run: |
+          python -m compileall api.py main.py config.py rag
+
+      # 运行单元测试
+      - name: 运行单元测试
+        run: |
+          pytest tests/unit -q
+
+      # 构建 Docker 镜像
+      - name: 构建 Docker 镜像
+        run: |
+          docker build -t recipe-rag-assistant:ci .
+
+  # ========== 部署 Job ==========
+  deploy:
+    name: 部署到服务器
+    runs-on: ubuntu-latest
+    # 必须在测试 Job 通过后才执行
+    needs: test
+    # 部署条件判断：
+    # 1. 手动触发且设置了 deploy=true
+    # 2. 或者推送到主分支且提交信息包含 [deploy] 标记
+    if: >
+      (github.event_name == 'workflow_dispatch' && inputs.deploy) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]'))
+
+    steps:
+      # 通过 SSH 连接到远程服务器进行部署
+      - name: 部署到远程服务器
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          # 确定要部署的分支（手动指定或当前分支）
+          DEPLOY_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}
+          # 仓库 URL
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+          # 从 GitHub Secrets 获取环境变量文件内容
+          APP_ENV_FILE: ${{ secrets.APP_ENV_FILE }}
+          # 应用目录
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+        with:
+          # 服务器地址（从 Secrets 获取）
+          host: ${{ secrets.SERVER_HOST }}
+          # SSH 用户名
+          username: ${{ secrets.SERVER_USER }}
+          # SSH 私钥（从 Secrets 获取）
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          # SSH 端口，默认 22
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          # 传递给远程脚本的环境变量
+          envs: DEPLOY_REF,REPO_URL,APP_ENV_FILE,APP_DIR
+          # 远程服务器执行的脚本
+          script: |
+            set -e
+            # 检查应用目录是否配置
+            if [ -z "$APP_DIR" ]; then
+              echo "SERVER_APP_DIR is not configured"
+              exit 1
+            fi
+
+            # 如果仓库不存在，先克隆
+            if [ ! -d "$APP_DIR/.git" ]; then
+              mkdir -p "$(dirname "$APP_DIR")"
+              git clone "$REPO_URL" "$APP_DIR"
+            fi
+
+            # 进入应用目录
+            cd "$APP_DIR"
+            # 更新所有远程分支
+            git fetch --all --prune
+            # 切换到指定分支
+            git checkout "$DEPLOY_REF"
+            # 拉取最新代码
+            git pull origin "$DEPLOY_REF"
+
+            # 生成 .env 文件
+            cat > .env <<'EOF'
+            $APP_ENV_FILE
+            EOF
+
+            # 使用 Docker Compose 启动应用（自动构建镜像）
+            docker compose up -d --build
+            # 清理未使用的 Docker 镜像（节省空间）
+            docker image prune -f

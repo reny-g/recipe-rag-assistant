@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>菜谱 RAG 助手</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+  <div class="app-background"></div>
+  <main class="page">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-icon">
+          <i class="ph-fill ph-cooking-pot"></i>
+        </div>
+        <div class="brand-text">
+          <p class="eyebrow">Recipe RAG Assistant</p>
+          <h1>中文菜谱智能助手</h1>
+        </div>
+      </div>
+      <div class="status-card">
+        <div class="status-group">
+          <div class="status-item">
+            <span class="status-label"><i class="ph ph-activity"></i> 服务状态</span>
+            <div class="status-indicator">
+              <span class="status-dot" id="status-dot"></span>
+              <strong id="service-status">检查中</strong>
+            </div>
+          </div>
+          <div class="status-item">
+            <span class="status-label"><i class="ph ph-identification-card"></i> 会话 ID</span>
+            <strong id="session-id-label" class="mono-text">demo-web</strong>
+          </div>
+        </div>
+        <button id="clear-session" class="icon-button danger" type="button" title="清空会话">
+          <i class="ph ph-trash"></i>
+        </button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <div class="examples-panel">
+          <h2><i class="ph-fill ph-lightbulb"></i> 灵感推荐</h2>
+          <p class="panel-desc">不知道吃什么？试试这些问题</p>
+          <div class="example-list">
+            <button class="example-chip" type="button" data-query="陈皮排骨汤怎么做？">
+              <span class="chip-icon">🍲</span>
+              <span class="chip-text">陈皮排骨汤怎么做？</span>
+            </button>
+            <button class="example-chip" type="button" data-query="推荐一道简单又营养的早餐。">
+              <span class="chip-icon">🍳</span>
+              <span class="chip-text">推荐一道简单又营养的早餐</span>
+            </button>
+            <button class="example-chip" type="button" data-query="番茄鸡蛋挂面需要什么材料？">
+              <span class="chip-icon">🍜</span>
+              <span class="chip-text">番茄鸡蛋挂面需要什么材料？</span>
+            </button>
+            <button class="example-chip" type="button" data-query="红烧肉怎么做才能肥而不腻？">
+              <span class="chip-icon">🥓</span>
+              <span class="chip-text">红烧肉怎么做才能肥而不腻？</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <section class="chat-wrapper">
+        <div class="chat-panel">
+          <div class="chat-header">
+            <div class="chat-title">
+              <h2><i class="ph-fill ph-chats-circle"></i> 烹饪对话</h2>
+            </div>
+            <label class="toggle-switch">
+              <input id="stream-toggle" type="checkbox" checked>
+              <span class="slider"></span>
+              <span class="toggle-label">流式响应</span>
+            </label>
+          </div>
+
+          <div id="messages" class="messages" aria-live="polite">
+            <div class="welcome-message">
+              <div class="welcome-icon"><i class="ph-fill ph-chef-hat"></i></div>
+              <h3>今天想做点什么好吃的？</h3>
+              <p>我是你的专属智能厨师助理，可以为你提供菜谱、烹饪技巧和饮食建议。</p>
+            </div>
+          </div>
+
+          <div class="composer-container">
+            <form id="chat-form" class="composer">
+              <div class="input-wrapper">
+                <textarea id="query" name="query" rows="1" placeholder="例如：陈皮排骨汤怎么做？ (按 Enter 发送，Shift+Enter 换行)"></textarea>
+                <input type="hidden" id="session-id" name="session_id" value="demo-web">
+                <button id="send-button" class="send-button" type="submit" disabled>
+                  <i class="ph-fill ph-paper-plane-right"></i>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <template id="message-template">
+    <div class="message-wrapper">
+      <div class="message-avatar"></div>
+      <article class="message">
+        <div class="message-meta"></div>
+        <div class="message-body markdown-body"></div>
+      </article>
+    </div>
+  </template>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
