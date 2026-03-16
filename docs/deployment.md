@@ -53,6 +53,8 @@ docker compose up -d --build
 - 挂载 `data/`
 - 挂载 `vector_index/`
 - 对 `/health` 做健康检查
+- 默认优先使用 `IMAGE_NAME` 指定的镜像
+- 本地也保留 `build` 配置，方便开发时直接本机构建
 
 ### 为什么第一次构建会很慢
 
@@ -73,6 +75,22 @@ docker compose up -d --build
 
 - 只要 `requirements.txt` 不变，后续构建通常会快很多
 - 第二次及之后的部署，速度会明显优于首次部署
+
+### 当前推荐的部署路径
+
+当前工作流已经升级为：
+
+1. GitHub Runner 执行测试
+2. GitHub Runner 构建 Docker 镜像
+3. GitHub Runner 将镜像推送到 GHCR
+4. 服务器只登录 GHCR、拉取镜像并启动容器
+
+这样做的好处是：
+
+- 服务器不再现场下载大量 Python 依赖
+- 部署速度明显更稳定
+- 服务器带宽压力更小
+- 更接近 Java 项目“先构建产物，再部署产物”的思路
 
 ### `docker compose` 和 `docker-compose` 的区别
 
@@ -168,22 +186,24 @@ git commit -m "修复部署流程 [deploy]"
 
 ### 当前部署实现
 
-部署阶段现在不再让服务器自己执行 `git clone` 或 `git pull`，而是改成：
+部署阶段现在不再让服务器自己构建镜像，而是改成：
 
 1. GitHub Runner 检出目标代码
-2. 打包生成 `release.tar.gz`
-3. 通过 SCP 上传到服务器
-4. 解压到 `SERVER_APP_DIR`
-5. 根据 `APP_ENV_FILE` 生成 `.env`
-6. 执行 `docker compose up -d --build`
+2. GitHub Runner 构建镜像
+3. GitHub Runner 将镜像推送到 GHCR
+4. 服务器登录 GHCR
+5. 服务器拉取本次镜像
+6. 根据 `APP_ENV_FILE` 生成 `.env`
+7. 执行 `docker compose up -d`
 
-这样可以避免服务器访问 GitHub 时出现 TLS 或网络拉取异常。
+这样可以避免服务器在部署阶段重复下载 Python 依赖，也不需要再现场构建镜像。
 
 补充说明：
 
-- 工作流内部会自动兼容 `docker compose` 和 `docker-compose`
-- 所以即使服务器是旧环境，也不需要你手工改工作流命令
-- 真正需要保证的是：服务器至少装了其中一种 Compose 能力
+- 当前工作流默认使用 GHCR 作为镜像仓库
+- 工作流里使用 `GITHUB_TOKEN` 非交互登录 GHCR
+- 你不需要手工去 GHCR 网页单独注册或复制额外 token，至少在 GitHub Actions 推送镜像这一步不需要
+- 服务器部署时同样通过工作流传入的 `GITHUB_TOKEN` 临时登录 GHCR 拉镜像
 
 ## 需要配置的 GitHub Secrets
 
@@ -205,6 +225,26 @@ QWEN_API_KEY=your_api_key_here
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 HF_ENDPOINT=https://hf-mirror.com
 ```
+
+## GHCR 说明
+
+当前方案使用 GHCR:
+
+```text
+ghcr.io/<github-owner>/recipe-rag-assistant
+```
+
+关于认证：
+
+- GitHub Actions 推送 GHCR 镜像时，直接使用仓库自带的 `GITHUB_TOKEN`
+- 一般不需要你额外去镜像仓库注册、申请、复制新的 token
+- 但工作流需要 `packages: write` 权限
+
+关于服务器拉取：
+
+- 现在的工作流会在部署步骤里临时登录 GHCR
+- 然后在服务器上执行 `docker pull`
+- 这样即使镜像暂时不是公开的，也能在这次工作流里完成部署
 
 ## 注意事项
 

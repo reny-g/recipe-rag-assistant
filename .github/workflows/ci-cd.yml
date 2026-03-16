@@ -1,246 +1,194 @@
-# 这是一份 GitHub Actions 工作流配置。
-# 你可以把它理解成：
-# 1. on: 什么情况下触发
-# 2. jobs: 触发后要执行哪些任务
-# 3. steps: 每个任务内部要按什么顺序做事
-# 4. uses / run: 每一步到底是调用现成动作，还是执行命令
-
 name: CI/CD
 
-# on = 工作流触发条件
+permissions:
+  contents: read
+  packages: write
+
 on:
-  # push = 有代码推送时触发
   push:
-    # 只有推送到 main 或 master 才触发这份工作流
     branches:
       - main
       - master
-
-  # pull_request = 提交 PR 时触发
   pull_request:
-
-  # workflow_dispatch = 手动触发
-  # 可以在 GitHub Actions 页面点按钮运行，并传入参数
   workflow_dispatch:
     inputs:
-      # deploy = 这次手动运行时是否顺便部署
       deploy:
         description: "CI 通过后是否部署到服务器"
         required: true
         default: false
         type: boolean
-
-      # ref = 这次要部署哪个 Git 引用
-      # 可以是分支名、标签，或者某个提交
       ref:
         description: "要部署的 Git 引用"
         required: false
         default: "main"
         type: string
 
-# jobs = 工作流中的任务集合
-# 这份配置里有两个任务：
-# 1. test: 测试和构建检查
-# 2. deploy: 部署到服务器
+env:
+  IMAGE_REGISTRY: ghcr.io
+  IMAGE_REPOSITORY: ${{ github.repository_owner }}/recipe-rag-assistant
+
 jobs:
-  # test = 持续集成任务
   test:
     name: 测试
-
-    # runs-on = 这个任务运行在哪台机器上
-    # 这里使用 GitHub 提供的 Ubuntu runner
     runs-on: ubuntu-latest
 
-    # steps = 当前任务内部的步骤列表
-    # 会从上到下依次执行，任何一步失败都会让整个 job 失败
     steps:
-      # uses = 调用现成的 GitHub Action
-      # actions/checkout 的作用是把仓库代码检出到 runner 上
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # actions/setup-python 的作用是安装指定版本的 Python
       - name: 配置 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      # run = 直接在 runner 上执行 shell 命令
-      # 这一步安装项目依赖和 pytest
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest
 
-      # compileall 的作用是先做一轮语法级检查
-      # 它不能替代测试，但可以快速发现明显的 Python 语法问题
       - name: 编译 Python 源码
         run: |
           python -m compileall api.py main.py config.py rag
 
-      # 运行单元测试，确保核心逻辑没有回归
       - name: 运行单元测试
         run: |
           pytest tests/unit -q
 
-      # 构建 Docker 镜像，验证当前仓库在容器里是否能正常构建
-      - name: 构建 Docker 镜像
-        run: |
-          export DOCKER_BUILDKIT=1
-          docker build -t recipe-rag-assistant:ci .
+  image:
+    name: 构建并推送镜像
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      image_ref: ${{ steps.image_ref.outputs.image_ref }}
 
-  # deploy = 持续部署任务
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: 生成镜像元数据
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_REPOSITORY }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: 配置 Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 记录本次部署镜像
+        id: image_ref
+        run: |
+          echo "image_ref=${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
   deploy:
     name: 部署
     runs-on: ubuntu-latest
-
-    # needs = 依赖前置任务
-    # 这里表示 deploy 必须等 test 成功后才会开始
-    needs: test
-
-    # if = 额外执行条件
-    # 不是每次 test 通过都会部署，只有满足下面任一条件才部署：
-    # 1. 手动触发 workflow_dispatch，并且 deploy=true
-    # 2. push 触发时，提交信息里包含 [deploy]
+    needs:
+      - image
     if: >
       (github.event_name == 'workflow_dispatch' && inputs.deploy) ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]'))
 
     steps:
-      # 先把要部署的代码检出到 runner
-      # 如果是手动触发，就用输入的 ref
-      # 否则就使用当前触发这次工作流的代码版本
-      - name: 检出待部署代码
+      - name: 检出部署配置
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
-      # 在 runner 上把当前代码打成压缩包
-      # 这样服务器就不需要自己 git clone / git pull
-      - name: 打包部署归档
-        run: |
-          mkdir -p build
-          tar \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='.pytest_cache' \
-            --exclude='__pycache__' \
-            --exclude='.venv' \
-            --exclude='venv' \
-            --exclude='vector_index' \
-            --exclude='eval/results.json' \
-            --exclude='eval/report.md' \
-            --exclude='build' \
-            --exclude='release.tar.gz' \
-            -czf build/release.tar.gz .
-
-      # 用现成的 scp action 把压缩包上传到服务器
-      # with = 传给这个 action 的参数
-      # 这些参数大多来自 GitHub Secrets
-      - name: 上传归档到服务器
+      - name: 上传 Compose 文件到服务器
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
-          source: "build/release.tar.gz"
-          target: "/tmp/recipe-rag-assistant-release"
+          source: "docker-compose.yml"
+          target: ${{ secrets.SERVER_APP_DIR }}
           overwrite: true
 
-      # 用 ssh action 登录服务器并执行远程脚本
-      # env = 给远程脚本准备环境变量
-      - name: 在服务器上部署
+      - name: 在服务器上拉镜像并部署
         uses: appleboy/ssh-action@v1.2.0
         env:
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
           APP_ENV_FILE: ${{ secrets.APP_ENV_FILE }}
+          IMAGE_NAME: ${{ needs.image.outputs.image_ref }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
-          command_timeout: 90m
-          envs: APP_DIR,APP_ENV_FILE
+          command_timeout: 30m
+          envs: APP_DIR,APP_ENV_FILE,IMAGE_NAME,GHCR_USERNAME,GHCR_TOKEN
           script: |
             set -e
 
-            # GitHub Secrets 偶尔会带上结尾换行，这里先做清理
             APP_DIR="$(printf '%s' "$APP_DIR" | tr -d '\r\n')"
+            IMAGE_NAME="$(printf '%s' "$IMAGE_NAME" | tr -d '\r\n')"
 
-            # 检查部署目录是否已配置
             if [ -z "$APP_DIR" ]; then
               echo "SERVER_APP_DIR is not configured"
               exit 1
             fi
+
+            if [ -z "$APP_ENV_FILE" ]; then
+              echo "APP_ENV_FILE is empty"
+              exit 1
+            fi
+
+            if [ -z "$IMAGE_NAME" ]; then
+              echo "IMAGE_NAME is empty"
+              exit 1
+            fi
+
+            mkdir -p "$APP_DIR"
+            cd "$APP_DIR"
+
+            printf '%s\n' "$APP_ENV_FILE" > .env
+            export IMAGE_NAME
 
             echo "== Deploy Debug: APP_DIR =="
             printf 'APP_DIR=[%s]\n' "$APP_DIR"
             printf 'APP_DIR(quoted)='
             printf '%q\n' "$APP_DIR"
 
-            # 创建应用目录
-            mkdir -p "$APP_DIR"
-
-            # 查找上传后的归档文件位置
-            RELEASE_FILE="$(find /tmp/recipe-rag-assistant-release -type f -name 'release.tar.gz' | head -n 1)"
-            if [ -z "$RELEASE_FILE" ]; then
-              echo "release.tar.gz was not found on the server"
-              find /tmp/recipe-rag-assistant-release -maxdepth 3 -type f || true
-              exit 1
-            fi
-
-            echo "== Deploy Debug: Release File =="
-            printf 'RELEASE_FILE=[%s]\n' "$RELEASE_FILE"
-            printf 'RELEASE_FILE(quoted)='
-            printf '%q\n' "$RELEASE_FILE"
-            find /tmp/recipe-rag-assistant-release -maxdepth 3 -type f || true
-
-            # 解压上传的归档到部署目录
-            tar -xzf "$RELEASE_FILE" -C "$APP_DIR"
-
-            # 根据 GitHub Secret 写入 .env
-            if [ -z "$APP_ENV_FILE" ]; then
-              echo "APP_ENV_FILE is empty"
-              exit 1
-            fi
-            printf '%s\n' "$APP_ENV_FILE" > "$APP_DIR/.env"
-
-            echo "== Deploy Debug: Working Directory =="
-            cd "$APP_DIR"
-            pwd
-            printf 'PWD(quoted)='
-            printf '%q\n' "$PWD"
-
-            echo "== Deploy Debug: File List =="
-            ls -la
-            echo "== Deploy Debug: Key Files =="
-            ls -la docker-compose.yml Dockerfile .env || true
-
-            echo "== Deploy Debug: .env Preview =="
-            sed -n '1,10p' .env | cat -vet || true
+            echo "== Deploy Debug: IMAGE_NAME =="
+            printf 'IMAGE_NAME=[%s]\n' "$IMAGE_NAME"
 
             echo "== Deploy Debug: Docker Environment =="
             docker --version
-            export DOCKER_BUILDKIT=1
-            export COMPOSE_DOCKER_CLI_BUILD=1
+            docker compose version
 
-            # 不同服务器可能安装的是 Docker Compose v2 插件或老的 docker-compose 命令
-            if docker compose version >/dev/null 2>&1; then
-              docker compose version
-              echo "== Deploy Debug: docker compose config =="
-              docker compose config
-              docker compose up -d --build
-            elif command -v docker-compose >/dev/null 2>&1; then
-              docker-compose --version
-              echo "== Deploy Debug: docker-compose config =="
-              docker-compose config
-              docker-compose up -d --build
-            else
-              echo "Neither 'docker compose' nor 'docker-compose' is available on the server"
-              exit 1
-            fi
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+            docker pull "$IMAGE_NAME"
 
-            # 清理无用镜像，避免服务器磁盘不断膨胀
+            echo "== Deploy Debug: docker compose config =="
+            docker compose config
+
+            docker compose pull
+            docker compose up -d
             docker image prune -f
+            docker logout ghcr.io

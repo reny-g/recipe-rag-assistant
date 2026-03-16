@@ -2,6 +2,7 @@ version: "3.8"
 
 services:
   recipe-rag-assistant:
+    image: ${IMAGE_NAME:-ghcr.io/reny-g/recipe-rag-assistant:latest}
     build:
       context: .
       dockerfile: Dockerfile
