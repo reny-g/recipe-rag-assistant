@@ -1,107 +1,118 @@
-# 部署指南
+# Deployment Guide
 
-## 当前部署模型
+## Current deployment model
 
-本项目使用单个 FastAPI 进程同时提供后端 API 和演示前端：
+This project uses one FastAPI service to serve both the backend APIs and the demo frontend:
 
-- 后端 API：
+- Backend API:
   - `POST /chat`
   - `POST /chat/stream`
   - `DELETE /sessions/{session_id}`
   - `GET /health`
-- 前端：
+- Frontend:
   - `GET /`
-  - `public/assets/` 中的静态资源
-  - `public/vendor/` 中的第三方脚本
+  - static files from `public/assets/`
+  - vendor files from `public/vendor/`
 
-这意味着当前的部署模型是：
+That means the current deployment model is:
 
-1. 启动一个 FastAPI 服务
-2. 暴露端口 `8000`
-3. 从 `/` 访问演示页面
-4. 页面调用同一个服务的聊天 API
+1. Start one FastAPI service
+2. Expose port `8000`
+3. Open `/` in the browser
+4. Let the page call the same service for chat APIs
 
-## 本地部署
+## Local deployment
 
 ```powershell
 uvicorn api:app --host 0.0.0.0 --port 8000
 ```
 
-访问：
+Open:
 
 ```text
 http://localhost:8000/
 ```
 
-## Docker 部署
+## Docker deployment
 
 ```powershell
 docker build -t recipe-rag-assistant .
 docker run --rm -p 8000:8000 --env-file .env recipe-rag-assistant
 ```
 
-## Docker Compose 部署
+## Docker Compose deployment
 
 ```powershell
 docker compose up -d --build
 ```
 
-当前 compose 的行为：
+Current compose behavior:
 
-- 映射 `8000:8000`
-- 读取 `.env` 文件
-- 挂载 `data/` 目录
-- 挂载 `vector_index/` 目录
-- 对 `/health` 进行健康检查
+- maps `8000:8000`
+- reads `.env`
+- mounts `data/`
+- mounts `vector_index/`
+- performs a health check on `/health`
 
-## 服务器部署建议
+## Server deployment recommendation
 
-对于简单的 VM 部署：
+For a simple VM deployment:
 
-1. 安装 Docker 和 Docker Compose
-2. 克隆仓库
-3. 创建 `.env` 文件
-4. 运行 `docker compose up -d --build`
-5. 可选：在端口 `8000` 前放置 Nginx 反向代理
+1. Install Docker and Docker Compose
+2. Create the target app directory on the server
+3. Let GitHub Actions upload the release bundle
+4. Let GitHub Actions write `.env`
+5. Let GitHub Actions run `docker compose up -d --build`
 
 ## GitHub Actions CI/CD
 
-仓库包含 `.github/workflows/ci-cd.yml`。
+The repo includes `.github/workflows/ci-cd.yml`.
 
-### CI 行为
+### CI behavior
 
-在每次 `push` 和 `pull_request` 时，GitHub Actions 将：
+On every `push` and `pull_request`, GitHub Actions will:
 
-1. 安装依赖
-2. 编译 Python 源代码
-3. 运行 `pytest tests/unit -q`
-4. 构建 Docker 镜像
+1. install dependencies
+2. compile Python sources
+3. run `pytest tests/unit -q`
+4. build the Docker image
 
-### 部署行为
+### Deployment behavior
 
-有两种部署触发方式：
+There are two deployment triggers:
 
-1. 手动部署：
-   - 打开 GitHub Actions
-   - 运行 `CI/CD`
-   - 设置 `deploy=true`
-   - 选择要部署的分支/引用
+1. Manual deploy:
+   - open GitHub Actions
+   - run `CI/CD`
+   - set `deploy=true`
+   - choose the ref to deploy
 
-2. 在提交时显式请求部署：
-   - 推送到 `main` 分支
-   - 在提交信息中包含 `[deploy]`
+2. Deploy on push when explicitly requested:
+   - push to `main` or `master`
+   - include `[deploy]` in the commit message
 
-示例：
+Example:
 
 ```text
-git commit -m "Update prompts and frontend [deploy]"
+git commit -m "Fix deployment workflow [deploy]"
 ```
 
-这样可以逐次选择是否部署，而不是每次推送都自动部署。
+### Deployment implementation
 
-## 必要的 GitHub Secrets
+The deployment job now works like this:
 
-在使用远程部署前，配置这些仓库密钥：
+1. checkout the target ref on the GitHub runner
+2. create `release.tar.gz`
+3. upload the archive to the server with SCP
+4. extract the archive into `SERVER_APP_DIR`
+5. write `.env` from `APP_ENV_FILE`
+6. run `docker compose up -d --build`
+
+This avoids server-side `git clone` and avoids TLS pull failures from GitHub.
+
+## Required GitHub Secrets
+
+Configure these repository secrets before using remote deployment:
 
 - `SERVER_HOST`
 - `SERVER_PORT`
@@ -110,9 +121,9 @@ git commit -m "Update prompts and frontend [deploy]"
 - `SERVER_APP_DIR`
 - `APP_ENV_FILE`
 
-### `APP_ENV_FILE` 示例
+### `APP_ENV_FILE` example
 
-将完整的 `.env` 内容作为多行密钥存储：
+Store the full `.env` content as one multiline secret:
 
 ```env
 QWEN_API_KEY=your_api_key_here
@@ -120,8 +131,8 @@ QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 HF_ENDPOINT=https://hf-mirror.com
 ```
 
-## 注意事项
+## Notes
 
-- 当前工作流假设 GitHub 仓库是公开的，以便服务器能通过 HTTPS 进行 `git clone`。
-- 如果后来将仓库改为私有，需要将服务器的拉取步骤改为使用部署密钥或 PAT（个人访问令牌）策略。
-- 如果你的服务器已经有进程管理器或反向代理，应该将其保留在 Docker 前面，而不是绕过容器设置。
+- The server no longer needs GitHub access for deployment.
+- The server only needs Docker, Docker Compose, disk space, and SSH access from GitHub Actions.
+- If you already use Nginx or another reverse proxy, keep it in front of the container service.
