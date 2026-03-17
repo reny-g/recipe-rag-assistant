@@ -17,6 +17,7 @@ services:
       EMBEDDING_LOCAL_FILES_ONLY: ${EMBEDDING_LOCAL_FILES_ONLY:-false}
     volumes:
       - ./data:/app/data:ro
+      - ./logs:/app/logs
       - ./model_cache:/opt/huggingface
       - ./vector_index:/app/vector_index
     restart: unless-stopped

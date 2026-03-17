@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 
 from dotenv import load_dotenv
 
+from observability import LoggingSettings, logging_settings_from_env
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATA_PATH = PROJECT_ROOT / "data"
@@ -59,6 +60,7 @@ class RAGConfig:
     answer_max_retries: int = 1
     top_k: int = 5
     history_window: int = 4
+    logging: LoggingSettings = LoggingSettings()
 
     @property
     def use_api_embeddings(self) -> bool:
@@ -87,6 +89,7 @@ class RAGConfig:
             answer_max_retries=_getenv_int("ANSWER_MAX_RETRIES", 1),
             top_k=_getenv_int("TOP_K", 5),
             history_window=_getenv_int("HISTORY_WINDOW", 4),
+            logging=logging_settings_from_env(PROJECT_ROOT),
         )
 
 

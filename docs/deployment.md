@@ -30,6 +30,7 @@ Notes:
 - Set `EMBEDDING_PROVIDER=local` for the local CPU embedding build.
 - `EMBEDDING_DEVICE` should stay `cpu` for this project.
 - `EMBEDDING_LOCAL_FILES_ONLY=true` is useful only when the local model has already been cached.
+- `LOG_DIR`, `LOG_FILENAME`, `LOG_LEVEL`, `LOG_MAX_BYTES`, and `LOG_BACKUP_COUNT` control file logging.
 
 ## Lightweight production Compose
 
@@ -39,6 +40,7 @@ Characteristics:
 
 - uses the prebuilt GHCR image
 - installs only API embedding runtime dependencies
+- mounts `./logs:/app/logs` for persistent file logs
 - does not mount Hugging Face model cache
 - suitable for CI/CD deployment to a CPU server
 
@@ -56,6 +58,7 @@ Characteristics:
 
 - builds the image with `INSTALL_LOCAL_EMBEDDINGS=true`
 - keeps the project on CPU
+- mounts `./logs:/app/logs` for persistent file logs
 - mounts `./model_cache:/opt/huggingface`
 - suitable for local/offline embedding deployments
 
@@ -84,3 +87,21 @@ The main reduction comes from moving these packages out of the default runtime i
 - `pytest`
 
 These are only installed for local embedding or development/test workflows now.
+
+## Logging and monitoring
+
+The service now writes logs to both:
+
+- stdout/stderr for container and process logs
+- `LOG_DIR/LOG_FILENAME` for rotating file logs
+
+Default file target:
+
+```text
+/app/logs/app.log
+```
+
+The API also exposes:
+
+- `GET /health`: readiness plus basic runtime status
+- `GET /metrics`: JSON metrics for request counts, error counts, endpoint latency, sessions, and knowledge-base summary

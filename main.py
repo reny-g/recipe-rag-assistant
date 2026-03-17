@@ -5,16 +5,12 @@ from pathlib import Path
 from typing import Dict, Generator, Iterable, List, Optional, Union
 
 from config import DEFAULT_CONFIG, RAGConfig, load_project_env
+from observability import configure_logging
 from rag import DataPreparation, HybridRetriever, RagGenerator, VectorStore
 
 
 load_project_env()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+configure_logging(DEFAULT_CONFIG.logging)
 logger = logging.getLogger(__name__)
 
 
@@ -87,6 +83,14 @@ class RagSystem:
         self.retrieval_module = HybridRetriever(vector_store, chunks, default_k=self.config.top_k)
         self._log_knowledge_base_stats()
         print("  - Knowledge base ready\n")
+
+    def get_runtime_status(self) -> dict:
+        knowledge_base = self.data_module.get_statistics() if self.retrieval_module is not None else {}
+        return {
+            "sessions_total": len(self.session_store),
+            "retrieval_cache_size": len(self._retrieval_cache),
+            "knowledge_base": knowledge_base,
+        }
 
     def answer_query(
         self,

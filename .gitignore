@@ -15,3 +15,4 @@ eval/results.json
 eval/report.md
 dist/
 build/
+logs/

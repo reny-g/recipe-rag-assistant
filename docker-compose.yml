@@ -11,6 +11,7 @@ services:
       EMBEDDING_DEVICE: cpu
     volumes:
       - ./data:/app/data:ro
+      - ./logs:/app/logs
       - ./vector_index:/app/vector_index
     restart: unless-stopped
     healthcheck:

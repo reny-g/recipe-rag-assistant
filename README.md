@@ -64,6 +64,12 @@ Web service:
 uvicorn api:app --host 0.0.0.0 --port 8000
 ```
 
+Observability:
+
+- logs go to both console and `logs/app.log` by default
+- `GET /health` returns readiness and basic runtime status
+- `GET /metrics` returns JSON metrics for request counts, latency, sessions, and knowledge base state
+
 ## Docker
 
 Lightweight production compose using API embeddings:
