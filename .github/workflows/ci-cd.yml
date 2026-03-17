@@ -96,8 +96,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY_ENDPOINT }}
-          username: ${{ vars.SERVER_REGISTRY_USERNAME }}
-          password: ${{ vars.SERVER_REGISTRY_PASSWORD }}
+          username: ${{ secrets.SERVER_REGISTRY_USERNAME }}
+          password: ${{ secrets.SERVER_REGISTRY_PASSWORD }}
 
       - name: Build and push local-embedding image
         uses: docker/build-push-action@v6
@@ -127,8 +127,8 @@ jobs:
         env:
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
           APP_ENV_FILE: ${{ secrets.APP_ENV_FILE }}
-          REGISTRY_USERNAME: ${{ vars.SERVER_REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: ${{ vars.SERVER_REGISTRY_PASSWORD }}
+          REGISTRY_USERNAME: ${{ secrets.SERVER_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.SERVER_REGISTRY_PASSWORD }}
           IMAGE_NAME: ${{ env.REGISTRY_PULL_ENDPOINT }}/${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}
         with:
           host: ${{ secrets.SERVER_HOST }}
