@@ -1,13 +1,9 @@
 import logging
 import os
 import sys
-import time
-from collections import Counter
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from threading import Lock
-from typing import Optional
 
 
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
@@ -83,71 +79,6 @@ def logging_settings_from_env(project_root: Path) -> LoggingSettings:
         max_bytes=_env_int("LOG_MAX_BYTES", 10 * 1024 * 1024),
         backup_count=_env_int("LOG_BACKUP_COUNT", 5),
     )
-
-
-class MetricsRegistry:
-    def __init__(self) -> None:
-        self.started_at = time.time()
-        self._lock = Lock()
-        self._request_count = 0
-        self._error_count = 0
-        self._path_counts: Counter[str] = Counter()
-        self._status_counts: Counter[str] = Counter()
-        self._latency_totals_ms: Counter[str] = Counter()
-        self._latency_counts: Counter[str] = Counter()
-        self._chat_requests = 0
-        self._stream_requests = 0
-
-    def record_request(self, method: str, path: str, status_code: int, duration_ms: float) -> None:
-        normalized_path = path or "unknown"
-        with self._lock:
-            self._request_count += 1
-            if status_code >= 400:
-                self._error_count += 1
-            if normalized_path.startswith("/chat"):
-                self._chat_requests += 1
-            if normalized_path == "/chat/stream":
-                self._stream_requests += 1
-            self._path_counts[f"{method} {normalized_path}"] += 1
-            self._status_counts[str(status_code)] += 1
-            self._latency_totals_ms[normalized_path] += duration_ms
-            self._latency_counts[normalized_path] += 1
-
-    def snapshot(
-        self,
-        *,
-        system_ready: bool,
-        session_count: int = 0,
-        retrieval_cache_size: int = 0,
-        knowledge_base: Optional[dict] = None,
-    ) -> dict:
-        with self._lock:
-            request_count = self._request_count
-            error_count = self._error_count
-            path_counts = dict(self._path_counts)
-            status_counts = dict(self._status_counts)
-            average_latency_ms = {
-                path: round(total / max(1, self._latency_counts.get(path, 0)), 2)
-                for path, total in self._latency_totals_ms.items()
-            }
-            chat_requests = self._chat_requests
-            stream_requests = self._stream_requests
-
-        uptime_seconds = round(time.time() - self.started_at, 2)
-        return {
-            "service_ready": system_ready,
-            "uptime_seconds": uptime_seconds,
-            "requests_total": request_count,
-            "errors_total": error_count,
-            "chat_requests_total": chat_requests,
-            "stream_requests_total": stream_requests,
-            "paths_total": path_counts,
-            "status_total": status_counts,
-            "average_latency_ms": average_latency_ms,
-            "sessions_total": session_count,
-            "retrieval_cache_size": retrieval_cache_size,
-            "knowledge_base": knowledge_base or {},
-        }
 
 
 def _env_bool(name: str, default: bool) -> bool:

@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 
 from dotenv import load_dotenv
 
-from observability import LoggingSettings, logging_settings_from_env
+from logging_setup import LoggingSettings, logging_settings_from_env
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATA_PATH = PROJECT_ROOT / "data"

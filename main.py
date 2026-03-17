@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Generator, Iterable, List, Optional, Union
 
 from config import DEFAULT_CONFIG, RAGConfig, load_project_env
-from observability import configure_logging
+from logging_setup import configure_logging
 from rag import DataPreparation, HybridRetriever, RagGenerator, VectorStore
 
 

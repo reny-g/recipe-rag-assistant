@@ -7,19 +7,18 @@ from typing import Generator, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from config import DEFAULT_CONFIG
 from main import RagSystem
-from observability import MetricsRegistry, configure_logging
+from logging_setup import configure_logging
 
 
 configure_logging(DEFAULT_CONFIG.logging)
 logger = logging.getLogger(__name__)
 system: Optional[RagSystem] = None
-metrics_registry = MetricsRegistry()
 PUBLIC_DIR = Path(__file__).resolve().parent / "public"
 
 
@@ -77,7 +76,6 @@ async def log_requests(request: Request, call_next):
         raise
     finally:
         duration_ms = (time.perf_counter() - started_at) * 1000
-        metrics_registry.record_request(request.method, request.url.path, status_code, duration_ms)
         logger.info(
             "HTTP request completed: method=%s path=%s status=%s duration_ms=%.1f",
             request.method,
@@ -101,18 +99,6 @@ def health() -> dict:
         "sessions_total": runtime.get("sessions_total", 0),
         "retrieval_cache_size": runtime.get("retrieval_cache_size", 0),
     }
-
-
-@app.get("/metrics")
-def metrics() -> JSONResponse:
-    runtime = system.get_runtime_status() if system is not None else {}
-    payload = metrics_registry.snapshot(
-        system_ready=system is not None,
-        session_count=runtime.get("sessions_total", 0),
-        retrieval_cache_size=runtime.get("retrieval_cache_size", 0),
-        knowledge_base=runtime.get("knowledge_base", {}),
-    )
-    return JSONResponse(content=payload)
 
 
 @app.post("/chat", response_model=ChatResponse)

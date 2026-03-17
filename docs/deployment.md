@@ -1,47 +1,46 @@
 # Deployment
 
-## Deployment modes
+## Deployment mode
 
-This project now supports two embedding deployment modes:
+This project is deployed with local `sentence-transformers` embeddings on CPU.
 
-1. `api`
-   Uses a remote embedding API such as DashScope's OpenAI-compatible endpoint.
-   This is the recommended production mode because the image is much smaller and does not need local model weights.
-2. `local`
-   Uses a local `sentence-transformers` embedding model on CPU.
-   This is useful when you want fully local embeddings and can accept a heavier image plus model cache.
+Recommended process:
+
+1. download the embedding model on your own machine
+2. copy the Hugging Face cache to the server
+3. start the service with `EMBEDDING_PROVIDER=local`
+4. keep `EMBEDDING_LOCAL_FILES_ONLY=true` so the server does not try to fetch models online
 
 ## Environment variables
 
 Core runtime variables:
 
 ```env
-EMBEDDING_PROVIDER=api
+EMBEDDING_PROVIDER=local
 EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
 EMBEDDING_DEVICE=cpu
-EMBEDDING_LOCAL_FILES_ONLY=false
+EMBEDDING_LOCAL_FILES_ONLY=true
 QWEN_API_KEY=your_api_key_here
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
 Notes:
 
-- Set `EMBEDDING_PROVIDER=api` for the lightweight production image.
-- Set `EMBEDDING_PROVIDER=local` for the local CPU embedding build.
+- Set `EMBEDDING_PROVIDER=local`.
 - `EMBEDDING_DEVICE` should stay `cpu` for this project.
-- `EMBEDDING_LOCAL_FILES_ONLY=true` is useful only when the local model has already been cached.
+- `EMBEDDING_LOCAL_FILES_ONLY=true` assumes the model cache has already been copied to the server.
 - `LOG_DIR`, `LOG_FILENAME`, `LOG_LEVEL`, `LOG_MAX_BYTES`, and `LOG_BACKUP_COUNT` control file logging.
 
-## Lightweight production Compose
+## Default production Compose
 
 Use the default [docker-compose.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.yml).
 
 Characteristics:
 
 - uses the prebuilt GHCR image
-- installs only API embedding runtime dependencies
+- uses local CPU embeddings
 - mounts `./logs:/app/logs` for persistent file logs
-- does not mount Hugging Face model cache
+- mounts `./model_cache:/opt/huggingface`
 - suitable for CI/CD deployment to a CPU server
 
 Start it with:
@@ -50,7 +49,7 @@ Start it with:
 docker compose up -d
 ```
 
-## Local CPU embedding Compose
+## Alternate local Compose
 
 Use [docker-compose.local.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.local.yml).
 
@@ -72,21 +71,16 @@ docker compose -f docker-compose.local.yml up -d --build
 
 The GitHub Actions workflow in [.github/workflows/ci-cd.yml](/d:/PythonProject/recipe-rag-assistant/.github/workflows/ci-cd.yml) now does the following:
 
-1. installs `requirements-dev.txt`
+1. installs lightweight test dependencies
 2. runs unit tests
-3. verifies that the local-embedding image still builds
-4. builds and pushes the lightweight production image to GHCR
-5. deploys with the default lightweight [docker-compose.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.yml)
+3. only builds and pushes the image when deploy is explicitly requested
+4. deploys with the default local-embedding [docker-compose.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.yml)
 
-## Why the production image is lighter now
+## Why the pipeline is faster now
 
-The main reduction comes from moving these packages out of the default runtime image:
-
-- `sentence-transformers`
-- `langchain-huggingface`
-- `pytest`
-
-These are only installed for local embedding or development/test workflows now.
+- unit-test runs no longer build the application image
+- image build and push no longer run on every push or pull request
+- pip caching is enabled in CI
 
 ## Logging and monitoring
 
@@ -104,4 +98,3 @@ Default file target:
 The API also exposes:
 
 - `GET /health`: readiness plus basic runtime status
-- `GET /metrics`: JSON metrics for request counts, error counts, endpoint latency, sessions, and knowledge-base summary

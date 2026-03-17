@@ -1,5 +1,5 @@
 from config import DEFAULT_CONFIG, RAGConfig
-from observability import LoggingSettings
+from logging_setup import LoggingSettings
 
 
 def test_default_runtime_flags_match_current_latency_strategy():
