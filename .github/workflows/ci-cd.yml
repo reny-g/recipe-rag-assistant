@@ -44,6 +44,7 @@ env:
   IMAGE_REPOSITORY: ${{ github.repository_owner }}/recipe-rag-assistant
   BASE_IMAGE_REPOSITORY: ${{ github.repository_owner }}/recipe-rag-assistant-base
   BASE_IMAGE_TAG: local-cpu-py312
+  REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}.git
 
 jobs:
   test:
@@ -76,30 +77,19 @@ jobs:
           pytest tests/unit -q
 
   image:
-    name: Build and Push Image
+    name: Ensure Base Image
     runs-on: ubuntu-latest
     needs: test
     # Only build/push images for explicit deploy flows.
     if: >
       (github.event_name == 'workflow_dispatch' && inputs.deploy) ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]'))
-    outputs:
-      image_ref: ${{ steps.image_ref.outputs.image_ref }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
-
-      - name: Generate image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_REPOSITORY }}
-          tags: |
-            type=sha,format=long
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -140,24 +130,6 @@ jobs:
           cache-from: type=gha,scope=base-image
           cache-to: type=gha,mode=max,scope=base-image
 
-      - name: Build and push local-embedding production image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          build-args: |
-            BASE_IMAGE=${{ steps.names.outputs.base_image }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=app-image
-          cache-to: type=gha,mode=max,scope=app-image
-
-      - name: Record image reference
-        id: image_ref
-        run: |
-          echo "image_ref=${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
-
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
@@ -174,21 +146,27 @@ jobs:
         env:
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
           APP_ENV_FILE: ${{ secrets.APP_ENV_FILE }}
-          IMAGE_NAME: ${{ needs.image.outputs.image_ref }}
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_IMAGE: ${{ env.IMAGE_REGISTRY }}/${{ env.BASE_IMAGE_REPOSITORY }}:${{ env.BASE_IMAGE_TAG }}
+          APP_IMAGE: recipe-rag-assistant:deploy-${{ github.sha }}
+          REPOSITORY_URL: ${{ env.REPOSITORY_URL }}
+          GIT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           command_timeout: 60m
-          envs: APP_DIR,APP_ENV_FILE,IMAGE_NAME,GHCR_USERNAME,GHCR_TOKEN
+          envs: APP_DIR,APP_ENV_FILE,GHCR_USERNAME,GHCR_TOKEN,BASE_IMAGE,APP_IMAGE,REPOSITORY_URL,GIT_REF
           script: |
             set -e
 
             APP_DIR="$(printf '%s' "$APP_DIR" | tr -d '\r\n')"
-            IMAGE_NAME="$(printf '%s' "$IMAGE_NAME" | tr -d '\r\n')"
+            BASE_IMAGE="$(printf '%s' "$BASE_IMAGE" | tr -d '\r\n')"
+            APP_IMAGE="$(printf '%s' "$APP_IMAGE" | tr -d '\r\n')"
+            REPOSITORY_URL="$(printf '%s' "$REPOSITORY_URL" | tr -d '\r\n')"
+            GIT_REF="$(printf '%s' "$GIT_REF" | tr -d '\r\n')"
 
             if [ -z "$APP_DIR" ]; then
               echo "SERVER_APP_DIR is not configured"
@@ -200,8 +178,8 @@ jobs:
               exit 1
             fi
 
-            if [ -z "$IMAGE_NAME" ]; then
-              echo "IMAGE_NAME is empty"
+            if [ -z "$BASE_IMAGE" ]; then
+              echo "BASE_IMAGE is empty"
               exit 1
             fi
 
@@ -236,13 +214,33 @@ jobs:
             EOF
 
             printf '%s\n' "$APP_ENV_FILE" > .env
-            export IMAGE_NAME
+            export IMAGE_NAME="$APP_IMAGE"
 
             docker --version
             docker compose version
+            git --version
 
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-            docker pull "$IMAGE_NAME"
+
+            if ! docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
+              docker pull "$BASE_IMAGE"
+            fi
+
+            if [ ! -d repo/.git ]; then
+              git clone --depth 1 "$REPOSITORY_URL" repo
+            fi
+
+            cd repo
+            git fetch --depth 1 origin "$GIT_REF"
+            git checkout --force FETCH_HEAD
+            cd "$APP_DIR"
+
+            docker build \
+              -f repo/Dockerfile \
+              --build-arg BASE_IMAGE="$BASE_IMAGE" \
+              -t "$APP_IMAGE" \
+              repo
+
             docker compose config
             docker compose up -d
             docker image prune -f --filter dangling=true
