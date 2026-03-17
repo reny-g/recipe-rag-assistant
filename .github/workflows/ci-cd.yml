@@ -198,7 +198,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
-          command_timeout: 30m
+          command_timeout: 60m
           envs: APP_DIR,APP_ENV_FILE,IMAGE_NAME,GHCR_USERNAME,GHCR_TOKEN
           script: |
             set -e
@@ -233,7 +233,6 @@ jobs:
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
             docker pull "$IMAGE_NAME"
             docker compose config
-            docker compose pull
             docker compose up -d
             docker image prune -f --filter dangling=true
             docker logout ghcr.io
