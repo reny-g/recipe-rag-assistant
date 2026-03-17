@@ -28,11 +28,6 @@ on:
         required: true
         default: false
         type: boolean
-      rebuild_base:
-        description: "Rebuild the dependency base image"
-        required: true
-        default: false
-        type: boolean
       ref:
         description: "Git ref to deploy"
         required: false
@@ -40,11 +35,9 @@ on:
         type: string
 
 env:
-  IMAGE_REGISTRY: ghcr.io
-  IMAGE_REPOSITORY: ${{ github.repository_owner }}/recipe-rag-assistant
-  BASE_IMAGE_REPOSITORY: ${{ github.repository_owner }}/recipe-rag-assistant-base
-  BASE_IMAGE_TAG: local-cpu-py312
-  REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}.git
+  REGISTRY_ENDPOINT: ${{ secrets.SERVER_HOST }}:5000
+  REGISTRY_PULL_ENDPOINT: 127.0.0.1:5000
+  IMAGE_REPOSITORY: recipe-rag-assistant
 
 jobs:
   test:
@@ -77,7 +70,7 @@ jobs:
           pytest tests/unit -q
 
   image:
-    name: Ensure Base Image
+    name: Build and Push Image
     runs-on: ubuntu-latest
     needs: test
     # Only build/push images for explicit deploy flows.
@@ -93,42 +86,30 @@ jobs:
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-config-inline: |
+            [registry."${{ env.REGISTRY_ENDPOINT }}"]
+              http = true
+              insecure = true
 
-      - name: Log in to GHCR
+      - name: Log in to local registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.IMAGE_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ env.REGISTRY_ENDPOINT }}
+          username: ${{ vars.SERVER_REGISTRY_USERNAME }}
+          password: ${{ vars.SERVER_REGISTRY_PASSWORD }}
 
-      - name: Define image names
-        id: names
-        run: |
-          echo "base_image=${{ env.IMAGE_REGISTRY }}/${{ env.BASE_IMAGE_REPOSITORY }}:${{ env.BASE_IMAGE_TAG }}" >> "$GITHUB_OUTPUT"
-
-      - name: Check base image availability
-        id: base_check
-        run: |
-          if docker buildx imagetools inspect "${{ steps.names.outputs.base_image }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build and push dependency base image
-        # Rebuild the heavy local-embedding base only when missing or explicitly requested.
-        if: >
-          steps.base_check.outputs.exists != 'true' ||
-          (github.event_name == 'workflow_dispatch' && inputs.rebuild_base) ||
-          (github.event_name == 'push' && contains(github.event.head_commit.message, '[rebuild-base]'))
+      - name: Build and push local-embedding image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.base
+          file: Dockerfile.full
           push: true
-          tags: ${{ steps.names.outputs.base_image }}
-          cache-from: type=gha,scope=base-image
-          cache-to: type=gha,mode=max,scope=base-image
+          tags: |
+            ${{ env.REGISTRY_ENDPOINT }}/${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}
+            ${{ env.REGISTRY_ENDPOINT }}/${{ env.IMAGE_REPOSITORY }}:latest
+          cache-from: type=gha,scope=server-registry-image
+          cache-to: type=gha,mode=max,scope=server-registry-image
 
   deploy:
     name: Deploy
@@ -146,27 +127,21 @@ jobs:
         env:
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
           APP_ENV_FILE: ${{ secrets.APP_ENV_FILE }}
-          GHCR_USERNAME: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BASE_IMAGE: ${{ env.IMAGE_REGISTRY }}/${{ env.BASE_IMAGE_REPOSITORY }}:${{ env.BASE_IMAGE_TAG }}
-          APP_IMAGE: recipe-rag-assistant:deploy-${{ github.sha }}
-          REPOSITORY_URL: ${{ env.REPOSITORY_URL }}
-          GIT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+          REGISTRY_USERNAME: ${{ vars.SERVER_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ vars.SERVER_REGISTRY_PASSWORD }}
+          IMAGE_NAME: ${{ env.REGISTRY_PULL_ENDPOINT }}/${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           command_timeout: 60m
-          envs: APP_DIR,APP_ENV_FILE,GHCR_USERNAME,GHCR_TOKEN,BASE_IMAGE,APP_IMAGE,REPOSITORY_URL,GIT_REF
+          envs: APP_DIR,APP_ENV_FILE,REGISTRY_USERNAME,REGISTRY_PASSWORD,IMAGE_NAME
           script: |
             set -e
 
             APP_DIR="$(printf '%s' "$APP_DIR" | tr -d '\r\n')"
-            BASE_IMAGE="$(printf '%s' "$BASE_IMAGE" | tr -d '\r\n')"
-            APP_IMAGE="$(printf '%s' "$APP_IMAGE" | tr -d '\r\n')"
-            REPOSITORY_URL="$(printf '%s' "$REPOSITORY_URL" | tr -d '\r\n')"
-            GIT_REF="$(printf '%s' "$GIT_REF" | tr -d '\r\n')"
+            IMAGE_NAME="$(printf '%s' "$IMAGE_NAME" | tr -d '\r\n')"
 
             if [ -z "$APP_DIR" ]; then
               echo "SERVER_APP_DIR is not configured"
@@ -178,8 +153,8 @@ jobs:
               exit 1
             fi
 
-            if [ -z "$BASE_IMAGE" ]; then
-              echo "BASE_IMAGE is empty"
+            if [ -z "$IMAGE_NAME" ]; then
+              echo "IMAGE_NAME is empty"
               exit 1
             fi
 
@@ -214,34 +189,14 @@ jobs:
             EOF
 
             printf '%s\n' "$APP_ENV_FILE" > .env
-            export IMAGE_NAME="$APP_IMAGE"
+            export IMAGE_NAME
 
             docker --version
             docker compose version
-            git --version
 
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-
-            if ! docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
-              docker pull "$BASE_IMAGE"
-            fi
-
-            if [ ! -d repo/.git ]; then
-              git clone --depth 1 "$REPOSITORY_URL" repo
-            fi
-
-            cd repo
-            git fetch --depth 1 origin "$GIT_REF"
-            git checkout --force FETCH_HEAD
-            cd "$APP_DIR"
-
-            docker build \
-              -f repo/Dockerfile \
-              --build-arg BASE_IMAGE="$BASE_IMAGE" \
-              -t "$APP_IMAGE" \
-              repo
-
+            echo "$REGISTRY_PASSWORD" | docker login 127.0.0.1:5000 -u "$REGISTRY_USERNAME" --password-stdin
+            docker pull "$IMAGE_NAME"
             docker compose config
             docker compose up -d
             docker image prune -f --filter dangling=true
-            docker logout ghcr.io
+            docker logout 127.0.0.1:5000
