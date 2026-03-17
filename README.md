@@ -28,6 +28,8 @@ Development and tests:
 pip install -r requirements-dev.txt
 ```
 
+CI uses [requirements-ci.txt](/d:/PythonProject/recipe-rag-assistant/requirements-ci.txt), which keeps the test environment smaller than the full local runtime.
+
 ## Environment
 
 Copy `.env.example` to `.env`:
@@ -74,6 +76,12 @@ Alternative local compose file:
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
+Notes:
+
+- [Dockerfile](/d:/PythonProject/recipe-rag-assistant/Dockerfile) is the fast production app image layered on top of a reusable dependency base image
+- [Dockerfile.base](/d:/PythonProject/recipe-rag-assistant/Dockerfile.base) builds the heavy local-embedding runtime layer and should change rarely
+- [Dockerfile.full](/d:/PythonProject/recipe-rag-assistant/Dockerfile.full) is the self-contained local build file used by [docker-compose.local.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.local.yml)
+
 ## CI/CD
 
 The workflow in [.github/workflows/ci-cd.yml](/d:/PythonProject/recipe-rag-assistant/.github/workflows/ci-cd.yml):
@@ -81,6 +89,7 @@ The workflow in [.github/workflows/ci-cd.yml](/d:/PythonProject/recipe-rag-assis
 - installs only lightweight test dependencies
 - runs unit tests
 - only builds and pushes the image when a deploy is explicitly requested
+- reuses a dedicated local-embedding base image so deploy-time app image builds stay fast
 - the production image is the local-embedding image
 - deploys with [docker-compose.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.yml)
 
@@ -89,6 +98,7 @@ The workflow in [.github/workflows/ci-cd.yml](/d:/PythonProject/recipe-rag-assis
 - [requirements.txt](/d:/PythonProject/recipe-rag-assistant/requirements.txt): base runtime dependencies
 - [requirements-local.txt](/d:/PythonProject/recipe-rag-assistant/requirements-local.txt): local embedding extras
 - [requirements-dev.txt](/d:/PythonProject/recipe-rag-assistant/requirements-dev.txt): development and test dependencies
+- [requirements-ci.txt](/d:/PythonProject/recipe-rag-assistant/requirements-ci.txt): pinned minimal dependencies for GitHub Actions tests
 - [docker-compose.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.yml): default local-embedding production compose
 - [docker-compose.local.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.local.yml): local CPU embedding compose
 - [docs/deployment.md](/d:/PythonProject/recipe-rag-assistant/docs/deployment.md): deployment details

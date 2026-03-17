@@ -72,15 +72,22 @@ docker compose -f docker-compose.local.yml up -d --build
 The GitHub Actions workflow in [.github/workflows/ci-cd.yml](/d:/PythonProject/recipe-rag-assistant/.github/workflows/ci-cd.yml) now does the following:
 
 1. installs lightweight test dependencies
+   specifically from [requirements-ci.txt](/d:/PythonProject/recipe-rag-assistant/requirements-ci.txt)
 2. runs unit tests
-3. only builds and pushes the image when deploy is explicitly requested
-4. deploys with the default local-embedding [docker-compose.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.yml)
+3. cancels older in-progress runs on the same branch
+4. only builds and pushes the image when deploy is explicitly requested
+5. reuses a heavy dependency base image for local embeddings
+6. only rebuilds that base image when it is missing or when you explicitly request `rebuild_base=true`
+7. deploys with the default local-embedding [docker-compose.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.yml)
 
 ## Why the pipeline is faster now
 
 - unit-test runs no longer build the application image
 - image build and push no longer run on every push or pull request
 - pip caching is enabled in CI
+- CI uses a pinned minimal dependency set instead of resolving the full runtime stack every run
+- older in-progress runs are cancelled automatically
+- the heavy `torch` and `sentence-transformers` layer is moved into a reusable base image
 
 ## Logging and monitoring
 

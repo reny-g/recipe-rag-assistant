@@ -2,9 +2,7 @@ services:
   recipe-rag-assistant:
     build:
       context: .
-      dockerfile: Dockerfile
-      args:
-        INSTALL_LOCAL_EMBEDDINGS: "true"
+      dockerfile: Dockerfile.full
     image: recipe-rag-assistant:local-cpu
     container_name: recipe-rag-assistant-local
     ports:
