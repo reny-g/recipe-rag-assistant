@@ -1,0 +1,27 @@
+services:
+  recipe-rag-assistant:
+    build:
+      context: .
+      dockerfile: Dockerfile.full
+    image: recipe-rag-assistant:local-cpu
+    container_name: recipe-rag-assistant-local
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      EMBEDDING_PROVIDER: local
+      EMBEDDING_DEVICE: cpu
+      EMBEDDING_LOCAL_FILES_ONLY: ${EMBEDDING_LOCAL_FILES_ONLY:-false}
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - ./model_cache:/opt/huggingface
+      - ./vector_index:/app/vector_index
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
