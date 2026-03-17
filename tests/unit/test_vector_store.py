@@ -1,3 +1,4 @@
+import pytest
 from langchain_core.documents import Document
 
 from rag.vector_store import VectorStore
@@ -80,3 +81,10 @@ def test_index_is_incompatible_when_document_is_removed():
     store = build_vector_store_with_docs(stored_docs)
 
     assert store.is_compatible_with_parent_docs(parent_docs, expected_chunk_count=2) is False
+
+
+def test_invalid_embedding_provider_is_rejected():
+    store = VectorStore(model_name="demo", index_save_path=".", embedding_provider="invalid")
+
+    with pytest.raises(ValueError):
+        store._ensure_embeddings()

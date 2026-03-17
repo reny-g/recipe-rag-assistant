@@ -1,22 +1,28 @@
 # syntax=docker/dockerfile:1.7
 FROM python:3.12-slim AS builder
 
+ARG INSTALL_LOCAL_EMBEDDINGS=false
+
 WORKDIR /install
 
-COPY requirements.txt /tmp/requirements.txt
+COPY requirements.txt requirements-local.txt /tmp/
 
+# 这里为runner的/root/.cache/pip
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --prefix=/install -r /tmp/requirements.txt
+    pip install --prefix=/install -r /tmp/requirements.txt && \
+    if [ "$INSTALL_LOCAL_EMBEDDINGS" = "true" ]; then \
+        pip install --prefix=/install -r /tmp/requirements-local.txt; \
+    fi
 
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    HF_HOME=/opt/huggingface
+    HF_HOME=/opt/huggingface \
+    EMBEDDING_DEVICE=cpu
 
 WORKDIR /app
 
 COPY --from=builder /install /usr/local
-
 COPY . /app
 
 EXPOSE 8000

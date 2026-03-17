@@ -34,7 +34,7 @@ class RagSystem:
         self.index_module = VectorStore(
             model_name=self.config.embedding_model,
             index_save_path=self.config.index_save_path,
-            use_api_embeddings=self.config.use_api_embeddings,
+            embedding_provider=self.config.embedding_provider,
             embedding_device=self.config.embedding_device,
             embedding_local_files_only=self.config.embedding_local_files_only,
         )

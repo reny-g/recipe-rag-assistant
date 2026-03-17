@@ -45,8 +45,8 @@ contextualize_system_prompt = """
 class RAGConfig:
     data_path: str = str(DEFAULT_DATA_PATH)
     index_save_path: str = str(DEFAULT_INDEX_PATH)
+    embedding_provider: str = "local"
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
-    use_api_embeddings: bool = False
     embedding_device: str = "cpu"
     embedding_local_files_only: bool = True
     llm_model: str = "qwen3.5-plus"
@@ -60,14 +60,61 @@ class RAGConfig:
     top_k: int = 5
     history_window: int = 4
 
+    @property
+    def use_api_embeddings(self) -> bool:
+        return self.embedding_provider == "api"
 
-DEFAULT_CONFIG = RAGConfig()
+    @classmethod
+    def from_env(cls) -> "RAGConfig":
+        embedding_provider = os.getenv("EMBEDDING_PROVIDER", "local").strip().lower() or "local"
+        if embedding_provider not in {"api", "local"}:
+            raise ValueError("EMBEDDING_PROVIDER must be either 'api' or 'local'.")
+
+        return cls(
+            data_path=os.getenv("DATA_PATH", str(DEFAULT_DATA_PATH)),
+            index_save_path=os.getenv("INDEX_SAVE_PATH", str(DEFAULT_INDEX_PATH)),
+            embedding_provider=embedding_provider,
+            embedding_model=os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5"),
+            embedding_device=os.getenv("EMBEDDING_DEVICE", "cpu"),
+            embedding_local_files_only=_getenv_bool("EMBEDDING_LOCAL_FILES_ONLY", True),
+            llm_model=os.getenv("LLM_MODEL", "qwen3.5-plus"),
+            enable_thinking=_getenv_bool("ENABLE_THINKING", False),
+            temperature=_getenv_float("TEMPERATURE", 0.2),
+            max_tokens=_getenv_int("MAX_TOKENS", 2048),
+            contextualize_timeout=_getenv_float("CONTEXTUALIZE_TIMEOUT", 8.0),
+            answer_timeout=_getenv_float("ANSWER_TIMEOUT", 45.0),
+            contextualize_max_retries=_getenv_int("CONTEXTUALIZE_MAX_RETRIES", 0),
+            answer_max_retries=_getenv_int("ANSWER_MAX_RETRIES", 1),
+            top_k=_getenv_int("TOP_K", 5),
+            history_window=_getenv_int("HISTORY_WINDOW", 4),
+        )
+
+
+def _getenv_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _getenv_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    return int(raw) if raw is not None and raw.strip() else default
+
+
+def _getenv_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    return float(raw) if raw is not None and raw.strip() else default
 
 
 def load_project_env() -> None:
     for env_path in ENV_PATHS:
         if env_path.exists():
             load_dotenv(env_path, override=False)
+
+
+load_project_env()
+DEFAULT_CONFIG = RAGConfig.from_env()
 
 
 def resolve_llm_credentials(model_name: str) -> Tuple[str, Optional[str]]:

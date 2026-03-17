@@ -13,12 +13,12 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: "CI 通过后是否部署到服务器"
+        description: "Deploy after CI passes"
         required: true
         default: false
         type: boolean
       ref:
-        description: "要部署的 Git 引用"
+        description: "Git ref to deploy"
         required: false
         default: "main"
         type: string
@@ -29,46 +29,49 @@ env:
 
 jobs:
   test:
-    name: 测试
+    name: Test
     runs-on: ubuntu-latest
 
     steps:
-      - name: 检出代码
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 配置 Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest
+          pip install -r requirements-dev.txt
 
-      - name: 编译 Python 源码
+      - name: Compile Python sources
         run: |
           python -m compileall api.py main.py config.py rag
 
-      - name: 运行单元测试
+      - name: Run unit tests
         run: |
           pytest tests/unit -q
 
+      - name: Build local-embedding image for compatibility
+        run: |
+          docker build --build-arg INSTALL_LOCAL_EMBEDDINGS=true -t recipe-rag-assistant:local-test .
+
   image:
-    name: 构建并推送镜像
+    name: Build and Push Image
     runs-on: ubuntu-latest
     needs: test
     outputs:
       image_ref: ${{ steps.image_ref.outputs.image_ref }}
 
     steps:
-      - name: 检出代码
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
-      - name: 生成镜像元数据
+      - name: Generate image metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -77,33 +80,35 @@ jobs:
             type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: 配置 Buildx
+      - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 登录 GHCR
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.IMAGE_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 构建并推送镜像
+      - name: Build and push lightweight production image
         uses: docker/build-push-action@v6
         with:
           context: .
+          build-args: |
+            INSTALL_LOCAL_EMBEDDINGS=false
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: 记录本次部署镜像
+      - name: Record image reference
         id: image_ref
         run: |
           echo "image_ref=${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
   deploy:
-    name: 部署
+    name: Deploy
     runs-on: ubuntu-latest
     needs:
       - image
@@ -112,12 +117,12 @@ jobs:
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]'))
 
     steps:
-      - name: 检出部署配置
+      - name: Checkout deployment files
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
-      - name: 上传 Compose 文件到服务器
+      - name: Upload Compose files
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -128,7 +133,7 @@ jobs:
           target: ${{ secrets.SERVER_APP_DIR }}
           overwrite: true
 
-      - name: 在服务器上拉镜像并部署
+      - name: Pull image and deploy on server
         uses: appleboy/ssh-action@v1.2.0
         env:
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
@@ -170,24 +175,12 @@ jobs:
             printf '%s\n' "$APP_ENV_FILE" > .env
             export IMAGE_NAME
 
-            echo "== Deploy Debug: APP_DIR =="
-            printf 'APP_DIR=[%s]\n' "$APP_DIR"
-            printf 'APP_DIR(quoted)='
-            printf '%q\n' "$APP_DIR"
-
-            echo "== Deploy Debug: IMAGE_NAME =="
-            printf 'IMAGE_NAME=[%s]\n' "$IMAGE_NAME"
-
-            echo "== Deploy Debug: Docker Environment =="
             docker --version
             docker compose version
 
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
             docker pull "$IMAGE_NAME"
-
-            echo "== Deploy Debug: docker compose config =="
             docker compose config
-
             docker compose pull
             docker compose up -d
             docker image prune -f --filter dangling=true

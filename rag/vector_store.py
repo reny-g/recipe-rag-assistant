@@ -1,11 +1,11 @@
 import logging
 import os
+from importlib import import_module
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
 
 from .dashscope_embeddings import DashScopeEmbeddings
 
@@ -22,13 +22,13 @@ class VectorStore:
         self,
         model_name: str,
         index_save_path: str,
-        use_api_embeddings: bool = False,
+        embedding_provider: str = "local",
         embedding_device: str = "cpu",
         embedding_local_files_only: bool = False,
     ):
         self.model_name = model_name
         self.index_save_path = Path(index_save_path)
-        self.use_api_embeddings = use_api_embeddings
+        self.embedding_provider = embedding_provider
         self.embedding_device = embedding_device
         self.embedding_local_files_only = embedding_local_files_only
         self.embeddings = None
@@ -131,10 +131,16 @@ class VectorStore:
         if self.embeddings is not None:
             return self.embeddings
 
-        if self.use_api_embeddings:
+        if self.embedding_provider == "api":
             logger.info("Initializing API embeddings")
             self.embeddings = DashScopeEmbeddings()
             return self.embeddings
+
+        if self.embedding_provider != "local":
+            raise ValueError(
+                f"Unsupported embedding provider: {self.embedding_provider}. "
+                "Expected 'api' or 'local'."
+            )
 
         model_kwargs = {"device": self.embedding_device}
         if self.embedding_local_files_only:
@@ -149,7 +155,7 @@ class VectorStore:
             self.embedding_device,
             self.embedding_local_files_only,
         )
-        self.embeddings = HuggingFaceEmbeddings(
+        self.embeddings = self._load_huggingface_embeddings()(
             model_name=model_source,
             cache_folder=self.DEFAULT_CACHE_FOLDER,
             model_kwargs=model_kwargs,
@@ -185,3 +191,14 @@ class VectorStore:
                 return snapshots[-1]
 
         return None
+
+    def _load_huggingface_embeddings(self):
+        try:
+            module = import_module("langchain_huggingface")
+            return module.HuggingFaceEmbeddings
+        except ImportError as exc:  # pragma: no cover
+            raise ImportError(
+                "Local embeddings require `langchain-huggingface` and "
+                "`sentence-transformers`. Install `requirements-local.txt` "
+                "or build the image with INSTALL_LOCAL_EMBEDDINGS=true."
+            ) from exc

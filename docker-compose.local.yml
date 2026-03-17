@@ -1,16 +1,23 @@
 services:
   recipe-rag-assistant:
-    image: ${IMAGE_NAME:-ghcr.io/reny-g/recipe-rag-assistant:latest}
-    container_name: recipe-rag-assistant
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        INSTALL_LOCAL_EMBEDDINGS: "true"
+    image: recipe-rag-assistant:local-cpu
+    container_name: recipe-rag-assistant-local
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
-      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-api}
+      EMBEDDING_PROVIDER: local
       EMBEDDING_DEVICE: cpu
+      EMBEDDING_LOCAL_FILES_ONLY: ${EMBEDDING_LOCAL_FILES_ONLY:-false}
     volumes:
       - ./data:/app/data:ro
+      - ./model_cache:/opt/huggingface
       - ./vector_index:/app/vector_index
     restart: unless-stopped
     healthcheck:
@@ -18,4 +25,4 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 45s
+      start_period: 60s
