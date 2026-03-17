@@ -13,6 +13,7 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+      - ./model_cache:/opt/huggingface
       - ./vector_index:/app/vector_index
     restart: unless-stopped
     healthcheck:

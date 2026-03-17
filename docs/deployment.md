@@ -66,15 +66,32 @@ docker compose up -d --build
 
 所以第一次服务器部署明显慢于后续部署，这属于正常现象。
 
-当前仓库已经做了两层优化：
+当前仓库已经做了三层优化：
 
 1. `Dockerfile` 先单独复制 `requirements.txt`，避免代码改动时反复失效依赖层缓存
-2. 构建时启用 BuildKit，并对 pip 下载目录做缓存挂载
+2. 使用多阶段构建，把依赖安装和运行时镜像分开
+3. 构建时启用 BuildKit，并对 pip 下载目录做缓存挂载
 
 这意味着：
 
 - 只要 `requirements.txt` 不变，后续构建通常会快很多
 - 第二次及之后的部署，速度会明显优于首次部署
+
+### 模型缓存挂载
+
+当前 Compose 已经把 Hugging Face 模型缓存目录挂载出来：
+
+```text
+./model_cache:/opt/huggingface
+```
+
+这样做的目的：
+
+- 避免容器重建后重新下载模型
+- 降低首次请求延迟
+- 减少服务器重复下载带宽消耗
+
+建议服务器上保留这个目录，不要在每次部署时清掉。
 
 ### 当前推荐的部署路径
 
@@ -204,6 +221,7 @@ git commit -m "修复部署流程 [deploy]"
 - 工作流里使用 `GITHUB_TOKEN` 非交互登录 GHCR
 - 你不需要手工去 GHCR 网页单独注册或复制额外 token，至少在 GitHub Actions 推送镜像这一步不需要
 - 服务器部署时同样通过工作流传入的 `GITHUB_TOKEN` 临时登录 GHCR 拉镜像
+- 部署结束后只清理 dangling images，不会再激进清理所有可复用镜像层
 
 ## 需要配置的 GitHub Secrets
 

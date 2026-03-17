@@ -190,5 +190,5 @@ jobs:
 
             docker compose pull
             docker compose up -d
-            docker image prune -f
+            docker image prune -f --filter dangling=true
             docker logout ghcr.io
