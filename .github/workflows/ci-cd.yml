@@ -14,6 +14,7 @@ on:
     branches:
       - main
       - master
+    # README/docs-only changes intentionally skip CI to keep routine pushes fast.
     paths-ignore:
       - "README.md"
       - "docs/**"
