@@ -168,6 +168,28 @@ jobs:
 
             mkdir -p "$APP_DIR"
             cd "$APP_DIR"
+            mkdir -p model_cache vector_index logs
+
+            HAS_MODEL_CACHE=false
+            HAS_VECTOR_INDEX=false
+
+            if find model_cache -type f | grep -q .; then
+              HAS_MODEL_CACHE=true
+            fi
+
+            if find vector_index -type f | grep -q .; then
+              HAS_VECTOR_INDEX=true
+            fi
+
+            BOOTSTRAP_LOCAL_FILES_ONLY=true
+            if [ "$HAS_MODEL_CACHE" != "true" ] || [ "$HAS_VECTOR_INDEX" != "true" ]; then
+              BOOTSTRAP_LOCAL_FILES_ONLY=false
+            fi
+
+            echo "APP_DIR=$APP_DIR"
+            echo "HAS_MODEL_CACHE=$HAS_MODEL_CACHE"
+            echo "HAS_VECTOR_INDEX=$HAS_VECTOR_INDEX"
+            echo "EMBEDDING_LOCAL_FILES_ONLY for this deploy=$BOOTSTRAP_LOCAL_FILES_ONLY"
 
             cat > docker-compose.yml <<'EOF'
             services:
@@ -181,7 +203,7 @@ jobs:
                 environment:
                   EMBEDDING_PROVIDER: local
                   EMBEDDING_DEVICE: cpu
-                  EMBEDDING_LOCAL_FILES_ONLY: ${EMBEDDING_LOCAL_FILES_ONLY:-true}
+                  EMBEDDING_LOCAL_FILES_ONLY: ${BOOTSTRAP_LOCAL_FILES_ONLY:-${EMBEDDING_LOCAL_FILES_ONLY:-true}}
                 volumes:
                   - ./data:/app/data:ro
                   - ./logs:/app/logs
@@ -197,7 +219,7 @@ jobs:
             EOF
 
             printf '%s\n' "$APP_ENV_FILE" > .env
-            export IMAGE_NAME
+            export IMAGE_NAME BOOTSTRAP_LOCAL_FILES_ONLY
 
             docker --version
             docker compose version
