@@ -1,6 +1,15 @@
 # syntax=docker/dockerfile:1.7
-ARG BASE_IMAGE=ghcr.io/reny-g/recipe-rag-assistant-base:local-cpu-py312
-FROM ${BASE_IMAGE}
+FROM python:3.12-slim AS builder
+
+WORKDIR /install
+
+COPY requirements.txt requirements-local.txt /tmp/
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --prefix=/install -r /tmp/requirements.txt && \
+    pip install --prefix=/install -r /tmp/requirements-local.txt
+
+FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     HF_HOME=/opt/huggingface \
@@ -8,6 +17,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+COPY --from=builder /install /usr/local
 COPY . /app
 
 EXPOSE 8000

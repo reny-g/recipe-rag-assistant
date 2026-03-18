@@ -2,7 +2,7 @@ services:
   recipe-rag-assistant:
     build:
       context: .
-      dockerfile: Dockerfile.full
+      dockerfile: Dockerfile
     image: recipe-rag-assistant:local-cpu
     container_name: recipe-rag-assistant-local
     ports:

@@ -111,7 +111,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.full
+          file: Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY_ENDPOINT }}/${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}

@@ -37,7 +37,7 @@ Use the default [docker-compose.yml](/d:/PythonProject/recipe-rag-assistant/dock
 
 Characteristics:
 
-- uses the prebuilt GHCR image
+- uses the image pushed to your server-side registry
 - uses local CPU embeddings
 - mounts `./logs:/app/logs` for persistent file logs
 - mounts `./model_cache:/opt/huggingface`
@@ -55,7 +55,7 @@ Use [docker-compose.local.yml](/d:/PythonProject/recipe-rag-assistant/docker-com
 
 Characteristics:
 
-- builds the image with `INSTALL_LOCAL_EMBEDDINGS=true`
+- builds the full local-embedding image from [Dockerfile](/d:/PythonProject/recipe-rag-assistant/Dockerfile)
 - keeps the project on CPU
 - mounts `./logs:/app/logs` for persistent file logs
 - mounts `./model_cache:/opt/huggingface`
@@ -76,9 +76,8 @@ The GitHub Actions workflow in [.github/workflows/ci-cd.yml](/d:/PythonProject/r
 2. runs unit tests
 3. cancels older in-progress runs on the same branch
 4. only builds and pushes the image when deploy is explicitly requested
-5. reuses a heavy dependency base image for local embeddings
-6. only rebuilds that base image when it is missing or when you explicitly request `rebuild_base=true`
-7. deploys with the default local-embedding [docker-compose.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.yml)
+5. pushes the full local-embedding image to the server-side registry
+6. deploys with the default local-embedding [docker-compose.yml](/d:/PythonProject/recipe-rag-assistant/docker-compose.yml)
 
 ## Why the pipeline is faster now
 
@@ -87,7 +86,7 @@ The GitHub Actions workflow in [.github/workflows/ci-cd.yml](/d:/PythonProject/r
 - pip caching is enabled in CI
 - CI uses a pinned minimal dependency set instead of resolving the full runtime stack every run
 - older in-progress runs are cancelled automatically
-- the heavy `torch` and `sentence-transformers` layer is moved into a reusable base image
+- GitHub Actions cache export for the full image has been removed to avoid multi-hour cache uploads
 
 ## Logging and monitoring
 
