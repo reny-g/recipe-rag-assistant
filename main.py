@@ -23,10 +23,10 @@ class RagSystem:
         self.config = config or DEFAULT_CONFIG
         self._validate_paths()
 
-        print("[1/4] Loading data module...")
+        logger.info("[1/4] Loading data module...")
         self.data_module = DataPreparation(self.config.data_path)
 
-        print("[2/4] Initializing embeddings...")
+        logger.info("[2/4] Initializing embeddings...")
         self.index_module = VectorStore(
             model_name=self.config.embedding_model,
             index_save_path=self.config.index_save_path,
@@ -36,7 +36,7 @@ class RagSystem:
         )
         self.retrieval_module: Optional[HybridRetriever] = None
 
-        print("[3/4] Initializing generator...")
+        logger.info("[3/4] Initializing generator...")
         self.generation_module = RagGenerator(
             model_name=self.config.llm_model,
             enable_thinking=self.config.enable_thinking,
@@ -52,40 +52,48 @@ class RagSystem:
             tuple[str, tuple[tuple[str, str], ...], int],
             List,
         ] = OrderedDict()
-        print("[4/4] Ready.")
+        logger.info("[4/4] Ready.")
 
     def build_knowledge_base(self) -> None:
         logger.info("Starting knowledge base build")
-        print("\nBuilding knowledge base")
-        print("  - Loading documents...")
+        logger.info("Building knowledge base")
+        logger.info("  - Loading documents...")
         self.data_module.load_documents()
-        print("  - Splitting documents...")
+        logger.info("  - Splitting documents...")
         chunks = self.data_module.split_into_chunks()
-        print(f"  - Generated {len(chunks)} chunks")
+        logger.info("  - Generated %d chunks", len(chunks))
 
-        print("  - Loading or building vector index...")
+        logger.info("  - Loading or building vector index...")
         vector_store = self.index_module.load_index()
         if vector_store is None:
             logger.info("No existing index found. Building a new FAISS index.")
-            print("  - No local index found. Building a new one...")
+            logger.info("  - No local index found. Building a new one...")
             vector_store = self.index_module.build_and_save_index(chunks)
         elif not self.index_module.is_compatible_with_parent_docs(
             self.data_module.parent_docs,
             expected_chunk_count=len(chunks),
         ):
-            logger.info("Existing vector index is incompatible with current documents. Rebuilding.")
-            print("  - Existing index metadata is incompatible. Rebuilding...")
+            logger.info(
+                "Existing vector index is incompatible with current documents. Rebuilding."
+            )
+            logger.info("  - Existing index metadata is incompatible. Rebuilding...")
             vector_store = self.index_module.build_and_save_index(chunks)
         else:
             logger.info("Existing vector index loaded.")
-            print("  - Loaded existing vector index")
+            logger.info("  - Loaded existing vector index")
 
-        self.retrieval_module = HybridRetriever(vector_store, chunks, default_k=self.config.top_k)
+        self.retrieval_module = HybridRetriever(
+            vector_store, chunks, default_k=self.config.top_k
+        )
         self._log_knowledge_base_stats()
-        print("  - Knowledge base ready\n")
+        logger.info("  - Knowledge base ready")
 
     def get_runtime_status(self) -> dict:
-        knowledge_base = self.data_module.get_statistics() if self.retrieval_module is not None else {}
+        knowledge_base = (
+            self.data_module.get_statistics()
+            if self.retrieval_module is not None
+            else {}
+        )
         return {
             "sessions_total": len(self.session_store),
             "retrieval_cache_size": len(self._retrieval_cache),
@@ -102,29 +110,30 @@ class RagSystem:
         request_started_at = time.perf_counter()
 
         history = self._get_recent_history(session_id)
-        if not history and self.generation_module.is_context_dependent_query(query):
-            answer = (
-                "这个问题依赖上一轮上下文，但当前会话里没有可参考的菜品。"
-                "请先说明具体菜名，例如“陈皮排骨汤要炖多久？”"
-            )
-            self._append_message(session_id, "user", query)
-            self._append_message(session_id, "assistant", answer)
-            self._log_reply_latency(query, request_started_at, event="missing_context")
-            return answer
-
-        contextualized_query = self.generation_module.contextualize_query(query, history)
+        contextualized_query = self.generation_module.contextualize_query(
+            query, history
+        )
         filters = self._extract_filters_from_query(contextualized_query)
 
         relevant_chunks = self._retrieve_chunks(contextualized_query, filters)
         if not relevant_chunks:
-            answer = "抱歉，知识库中没有找到相关菜谱信息。请尝试其他菜名或更具体的关键词。"
+            # 根据是否有历史记录和 query 特征，给出不同的提示
+            if not history and self.generation_module.is_context_dependent_query(query):
+                answer = (
+                    "您的问题似乎需要上下文（例如包含'这个'、'那个'等指代词），"
+                    "但当前会话里没有可参考的菜品。请先说明具体菜名，例如'陈皮排骨汤怎么做？'"
+                )
+            else:
+                answer = "抱歉，知识库中没有找到相关菜谱信息。请尝试其他菜名或更具体的关键词。"
             self._append_message(session_id, "user", query)
             self._append_message(session_id, "assistant", answer)
             self._log_reply_latency(query, request_started_at, event="no_results")
             return answer
 
         relevant_docs = self.data_module.get_parent_documents(relevant_chunks)
-        self._log_retrieval_summary(query, contextualized_query, relevant_chunks, relevant_docs)
+        self._log_retrieval_summary(
+            query, contextualized_query, relevant_chunks, relevant_docs
+        )
 
         if stream:
             return self._stream_and_store(
@@ -139,7 +148,9 @@ class RagSystem:
                 ),
             )
 
-        answer = self.generation_module.generate_answer(query, relevant_docs, history, stream=False)
+        answer = self.generation_module.generate_answer(
+            query, relevant_docs, history, stream=False
+        )
         if not isinstance(answer, str):
             answer = "".join(answer)
         self._append_message(session_id, "user", query)
@@ -171,7 +182,14 @@ class RagSystem:
                 print("已关闭流式输出。")
                 continue
 
-            result = self.answer_query(query, session_id=session_id, stream=stream_enabled)
+            try:
+                result = self.answer_query(
+                    query, session_id=session_id, stream=stream_enabled
+                )
+            except Exception as e:
+                logger.error("Query failed: %s", e, exc_info=True)
+                print(f"出现错误：{e}")
+                continue
             if isinstance(result, str):
                 print(result)
             else:
@@ -196,8 +214,12 @@ class RagSystem:
         return history[-self.config.history_window :]
 
     def _append_message(self, session_id: str, role: str, content: str) -> None:
-        self.session_store.setdefault(session_id, []).append({"role": role, "content": content})
-        self.session_store[session_id] = self.session_store[session_id][-self.config.history_window :]
+        self.session_store.setdefault(session_id, []).append(
+            {"role": role, "content": content}
+        )
+        self.session_store[session_id] = self.session_store[session_id][
+            -self.config.history_window :
+        ]
 
     def _stream_and_store(
         self,
@@ -211,15 +233,24 @@ class RagSystem:
         def _wrapped():
             chunks: List[str] = []
             first_chunk_logged = False
-            for piece in stream:
-                if piece and not first_chunk_logged:
-                    self._log_reply_latency(query, request_started_at, event="first_stream_chunk")
-                    first_chunk_logged = True
-                chunks.append(piece)
-                yield piece
-            if not first_chunk_logged:
-                self._log_reply_latency(query, request_started_at, event="stream_completed_without_chunk")
-            self._append_message(session_id, "assistant", "".join(chunks))
+            try:
+                for piece in stream:
+                    if piece and not first_chunk_logged:
+                        self._log_reply_latency(
+                            query, request_started_at, event="first_stream_chunk"
+                        )
+                        first_chunk_logged = True
+                    chunks.append(piece)
+                    yield piece
+                if not first_chunk_logged:
+                    self._log_reply_latency(
+                        query,
+                        request_started_at,
+                        event="stream_completed_without_chunk",
+                    )
+            finally:
+                # 无论调用方是否完整消费 generator（如中途断连），都确保 assistant 消息写入历史
+                self._append_message(session_id, "assistant", "".join(chunks))
 
         return _wrapped()
 
@@ -240,7 +271,9 @@ class RagSystem:
         else:
             chunks = self.retrieval_module.hybrid_search(query, top_k=self.config.top_k)
 
-        self._cache_set(self._retrieval_cache, cache_key, list(chunks), self.RETRIEVAL_CACHE_SIZE)
+        self._cache_set(
+            self._retrieval_cache, cache_key, list(chunks), self.RETRIEVAL_CACHE_SIZE
+        )
         return chunks
 
     def _retrieval_cache_key(
@@ -253,12 +286,16 @@ class RagSystem:
     def _extract_filters_from_query(self, query: str) -> dict[str, str]:
         filters: dict[str, str] = {}
 
-        for category in DataPreparation.get_supported_categories():
+        for category in sorted(
+            DataPreparation.get_supported_categories(), key=len, reverse=True
+        ):
             if category in query:
                 filters["category"] = category
                 break
 
-        for difficulty in sorted(DataPreparation.get_supported_difficulties(), key=len, reverse=True):
+        for difficulty in sorted(
+            DataPreparation.get_supported_difficulties(), key=len, reverse=True
+        ):
             if difficulty in query:
                 filters["difficulty"] = difficulty
                 break
@@ -298,19 +335,29 @@ class RagSystem:
         chunk_labels = []
         for chunk in chunks:
             dish_name = chunk.metadata.get("dish_name", "未知菜品")
-            preview = chunk.page_content.splitlines()[0].strip() if chunk.page_content else "内容片段"
+            preview = (
+                chunk.page_content.splitlines()[0].strip()
+                if chunk.page_content
+                else "内容片段"
+            )
             chunk_labels.append(f"{dish_name}({preview[:30]})")
 
         doc_names = [doc.metadata.get("dish_name", "未知菜品") for doc in docs]
         logger.info("User query: %s", original_query)
         if contextualized_query != original_query:
             logger.info("Contextualized query: %s", contextualized_query)
-        logger.info("Retrieved chunks: %s", ", ".join(chunk_labels) if chunk_labels else "none")
-        logger.info("Retrieved documents: %s", ", ".join(doc_names) if doc_names else "none")
+        logger.info(
+            "Retrieved chunks: %s", ", ".join(chunk_labels) if chunk_labels else "none"
+        )
+        logger.info(
+            "Retrieved documents: %s", ", ".join(doc_names) if doc_names else "none"
+        )
 
     def _log_reply_latency(self, query: str, started_at: float, event: str) -> None:
         elapsed_ms = (time.perf_counter() - started_at) * 1000
-        logger.info("Reply latency: event=%s elapsed_ms=%.1f query=%r", event, elapsed_ms, query)
+        logger.info(
+            "Reply latency: event=%s elapsed_ms=%.1f query=%r", event, elapsed_ms, query
+        )
 
 
 if __name__ == "__main__":
