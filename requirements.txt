@@ -3,6 +3,7 @@ openai==2.26.0
 
 fastapi==0.135.1
 uvicorn==0.41.0
+slowapi==0.1.9
 
 langchain-community==0.4.1
 langchain-core==1.2.17

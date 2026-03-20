@@ -10,6 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from config import DEFAULT_CONFIG
 from main import RagSystem
@@ -20,6 +23,8 @@ configure_logging(DEFAULT_CONFIG.logging)
 logger = logging.getLogger(__name__)
 system: Optional[RagSystem] = None
 PUBLIC_DIR = Path(__file__).resolve().parent / "public"
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 class ChatRequest(BaseModel):
@@ -52,6 +57,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -91,7 +98,8 @@ def index() -> FileResponse:
 
 
 @app.get("/health")
-def health() -> dict:
+@limiter.limit("60/minute")
+def health(request: Request) -> dict:
     runtime = system.get_runtime_status() if system is not None else {}
     return {
         "status": "ok" if system is not None else "starting",
@@ -102,33 +110,35 @@ def health() -> dict:
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+@limiter.limit("10/minute")
+def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
     if system is None:
         raise HTTPException(status_code=503, detail="RAG system is not ready")
 
-    answer = system.answer_query(request.query, session_id=request.session_id, stream=False)
+    answer = system.answer_query(chat_request.query, session_id=chat_request.session_id, stream=False)
     if not isinstance(answer, str):
         answer = "".join(answer)
-    return ChatResponse(answer=answer, session_id=request.session_id)
+    return ChatResponse(answer=answer, session_id=chat_request.session_id)
 
 
 @app.post("/chat/stream")
-def chat_stream(request: ChatRequest) -> StreamingResponse:
+@limiter.limit("10/minute")
+def chat_stream(request: Request, chat_request: ChatRequest) -> StreamingResponse:
     if system is None:
         raise HTTPException(status_code=503, detail="RAG system is not ready")
 
-    stream = system.answer_query(request.query, session_id=request.session_id, stream=True)
+    stream = system.answer_query(chat_request.query, session_id=chat_request.session_id, stream=True)
     if isinstance(stream, str):
         stream = iter([stream])
 
     def event_stream() -> Generator[str, None, None]:
-        yield _sse_event("start", {"session_id": request.session_id})
+        yield _sse_event("start", {"session_id": chat_request.session_id})
         try:
             for chunk in stream:
                 if not chunk:
                     continue
                 yield _sse_event("token", {"content": chunk})
-            yield _sse_event("end", {"session_id": request.session_id})
+            yield _sse_event("end", {"session_id": chat_request.session_id})
         except Exception as exc:
             logger.exception("Streaming chat failed")
             yield _sse_event("error", {"message": str(exc)})
@@ -137,7 +147,8 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 
 
 @app.delete("/sessions/{session_id}", response_model=SessionResponse)
-def clear_session(session_id: str) -> SessionResponse:
+@limiter.limit("20/minute")
+def clear_session(request: Request, session_id: str) -> SessionResponse:
     if system is None:
         raise HTTPException(status_code=503, detail="RAG system is not ready")
 
